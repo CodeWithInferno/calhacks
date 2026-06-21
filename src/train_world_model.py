@@ -349,9 +349,13 @@ def train(cfg):
             print(f"Early stopping at epoch {epoch}")
             break
 
-    # Final test eval.
+    # Final test eval using the best checkpoint (not the last epoch).
+    best_model_path = os.path.join(output_dir, "best_model.pt")
+    if os.path.exists(best_model_path):
+        model.load_state_dict(torch.load(best_model_path, map_location=device))
+        model = model.to(device)
     test_metrics = evaluate_model(model, test_loader, device)
-    print("\nFinal test metrics:")
+    print("\nFinal test metrics (best checkpoint):")
     for k, v in test_metrics.items():
         print(f"  {k}: {v:.4f}")
 
