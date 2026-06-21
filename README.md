@@ -124,6 +124,16 @@ The policy is expected to improve further up to the 5M final checkpoint.
 
 ---
 
+## Demo
+
+The backend is running on the Nebius VM. Expose it locally with an SSH tunnel:
+
+```bash
+ssh -L 8000:localhost:8000 hemad@195.242.29.248
+```
+
+Then open the frontend or hit the API at `http://localhost:8000`.
+
 ## Backend API
 
 The FastAPI server runs on `http://localhost:8000`.
