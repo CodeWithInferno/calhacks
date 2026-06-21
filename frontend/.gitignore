@@ -1,0 +1,26 @@
+# --- secrets: never commit credentials ---
+.env
+.env.*
+!.env.example
+.aws/
+*.pem
+
+# --- dependencies / build ---
+node_modules/
+dist/
+
+# --- python backend ---
+backend/.venv/
+__pycache__/
+*.pyc
+
+# --- fetched run artifacts (large binaries pulled from Nebius) ---
+# The demo run is kept in git so the app runs without credentials.
+public/runs/*
+!public/runs/demo/
+!public/runs/index.json
+
+# --- os / editor cruft ---
+.DS_Store
+*.log
+.vscode/
