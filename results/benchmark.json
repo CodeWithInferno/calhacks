@@ -1,0 +1,14 @@
+[
+  {
+    "config": "small",
+    "params": 22273,
+    "hidden_dim": 64,
+    "num_layers": 1,
+    "batch_size": 512,
+    "epochs": 71,
+    "best_val_auc": 0.9997,
+    "final_val_auc": 0.9997,
+    "final_val_f1": 0.9587,
+    "train_time_sec": 182.01756501197815
+  }
+]

@@ -1,0 +1,2 @@
+config,params,hidden_dim,num_layers,batch_size,epochs,best_val_auc,final_val_auc,final_val_f1,train_time_sec
+small,22273,64,1,512,71,0.9997,0.9997,0.9587,182.01756501197815
