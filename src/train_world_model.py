@@ -257,6 +257,8 @@ def train(cfg):
         f.write(",".join(log_columns) + "\n")
 
     best_auc = -1.0
+    best_val_loss = float("inf")
+    best_metric_value = None
     epochs_no_improve = 0
     start_epoch = 1
 
@@ -310,12 +312,22 @@ def train(cfg):
             f"val_f1: {val_metrics['f1']:.4f} | lr: {lr_now:.6f} | time: {epoch_time:.1f}s"
         )
 
-        scheduler.step(val_metrics["auc"])
+        # Choose early-stopping / checkpointing metric.
+        best_metric = cfg.get("best_metric", "val_auc")
+        if best_metric == "val_loss":
+            is_best = val_metrics["loss"] < best_val_loss
+            if is_best:
+                best_val_loss = val_metrics["loss"]
+                best_metric_value = best_val_loss
+        else:
+            is_best = val_metrics["auc"] > best_auc
+            if is_best:
+                best_auc = val_metrics["auc"]
+                best_metric_value = best_auc
 
-        # Checkpointing.
-        is_best = val_metrics["auc"] > best_auc
+        scheduler.step(best_metric_value if best_metric_value is not None else val_metrics["auc"])
+
         if is_best:
-            best_auc = val_metrics["auc"]
             epochs_no_improve = 0
             torch.save(model.state_dict(), os.path.join(output_dir, "best_model.pt"))
         else:
@@ -355,7 +367,10 @@ def train(cfg):
         os.path.join(output_dir, "final_checkpoint.pt"),
     )
 
-    print(f"\nBest val AUC: {best_auc:.4f}")
+    if best_metric == "val_loss":
+        print(f"\nBest val loss: {best_val_loss:.4f}")
+    else:
+        print(f"\nBest val AUC: {best_auc:.4f}")
     print(f"Model saved to {output_dir}")
 
 

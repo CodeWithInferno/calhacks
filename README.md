@@ -13,7 +13,7 @@ pip install -r requirements.txt
 python src/generate_demo_data.py
 
 # Train the world model
-python src/train_world_model.py --config configs/mujoco_large_split.yaml
+python src/train_world_model.py --config configs/mujoco_valloss.yaml
 
 # Run inference
 python src/infer.py --input data/demo_slope_load_data.csv --output data/predictions.csv
@@ -37,14 +37,14 @@ python src/plot_training_log.py --log models/mujoco_large_split/training_log.csv
 
 ## Current model
 
-- **Architecture:** 2-layer GRU, 320 hidden units, ~1.2M parameters.
+- **Architecture:** 2-layer GRU, 128 hidden units, ~220k parameters.
 - **Input:** sliding window of 10 timesteps of state + slope + force features.
 - **Output:** probability of fall within prediction horizon.
 - **Training:** AdamW, ReduceLROnPlateau, early stopping, checkpointing, CSV logging.
-- **Best checkpoint:** `models/mujoco_large_split/best_model.pt`
-- **Episode-split validation:** val AUC 0.9925, test AUC 0.9950, test F1 0.9728.
+- **Best checkpoint:** `models/mujoco_valloss/best_model.pt`
+- **Episode-split validation:** test AUC **0.9953**, test F1 **0.9724**, best val loss **0.1134**.
 
-See `models/mujoco_large_split/training_report.html` for interactive curves.
+See `models/mujoco_valloss/training_report.html` for interactive curves.
 
 ## Real MuJoCo data
 
