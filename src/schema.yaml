@@ -26,3 +26,11 @@ feature_cols:
   - cmd_vel_x
   - cmd_vel_y
   - cmd_yaw_rate
+  # external force / load
+  - force_mag
+  - force_x
+  - force_y
+  - force_z
+  - force_app_x
+  - force_app_y
+  - force_app_z
