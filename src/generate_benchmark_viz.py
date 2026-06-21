@@ -84,15 +84,15 @@ def generate(output_path: Path):
     ax_cards.axis("off")
     _add_card(ax_cards, 0.02, 0.1, 0.22, 0.8, "0.9971", "World Model AUC", "#818cf8")
     _add_card(ax_cards, 0.27, 0.1, 0.22, 0.8, "97.4%", "Fall Prediction Accuracy", "#34d399")
-    _add_card(ax_cards, 0.52, 0.1, 0.22, 0.8, "2.22 m", "PPO v4 Forward Distance", "#f472b6")
-    _add_card(ax_cards, 0.77, 0.1, 0.22, 0.8, "1.74 s", "PPO v4 Survival Time", "#fbbf24")
+    _add_card(ax_cards, 0.52, 0.1, 0.22, 0.8, "3.34 m", "PPO v4 Forward Distance", "#f472b6")
+    _add_card(ax_cards, 0.77, 0.1, 0.22, 0.8, "2.54 s", "PPO v4 Survival Time", "#fbbf24")
 
     # Controller comparison (flat ground, seed 42, 0.5 m/s)
     ax_bar = fig.add_axes([0.07, 0.38, 0.55, 0.28])
     ax_bar.set_facecolor("#0f172a")
     controllers = ["Heuristic", "Safe-MPC", "PPO v4"]
-    distance = [0.60, 0.59, 2.22]
-    survival = [0.88, 0.89, 1.74]
+    distance = [0.60, 0.59, 3.34]
+    survival = [0.88, 0.89, 2.54]
     x = np.arange(len(controllers))
     width = 0.35
     bars1 = ax_bar.bar(x - width / 2, distance, width, label="Distance (m)", color="#6366f1", edgecolor="#4f46e5")
@@ -105,7 +105,7 @@ def generate(output_path: Path):
     ax_bar.tick_params(colors="#94a3b8")
     for spine in ax_bar.spines.values():
         spine.set_color("#334155")
-    ax_bar.set_ylim(0, 2.6)
+    ax_bar.set_ylim(0, 3.8)
     for bar in bars1:
         height = bar.get_height()
         ax_bar.annotate(f"{height:.2f}", xy=(bar.get_x() + bar.get_width() / 2, height),
@@ -152,7 +152,7 @@ def generate(output_path: Path):
     bullets = [
         "• The GRU world model predicts falls with 99.71% AUC on held-out test episodes.",
         "• Heuristic and Safe-MPC controllers fall on every tested terrain — the controller is the bottleneck, not the critic.",
-        "• PPO v4 is trained directly in MuJoCo and already walks 2.2 m on flat ground; training continues to 5M steps.",
+        "• PPO v4 is trained directly in MuJoCo and walks 3.3 m on flat ground after 5M steps — 5.6× farther than the heuristic.",
         "• The backend serves real-time MuJoCo rollouts with per-frame risk scores to the frontend viewer.",
     ]
     for i, b in enumerate(bullets):
