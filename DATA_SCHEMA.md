@@ -6,6 +6,9 @@ One row per simulation timestep.
 
 - `episode_id` — rollout number
 - `time` — simulation time in seconds
+- `timestep` — integer step index within episode
+
+No separate t-1/t/t+1 columns needed. The training script builds sliding windows from rows ordered by `timestep`.
 
 ## Terrain
 
@@ -38,6 +41,7 @@ One row per simulation timestep.
 - `force_body` — body name where force is applied
 - `force_app_x`, `force_app_y`, `force_app_z` — application point in world frame
 
-## Label
+## Labels
 
-- `fall_label` — `1` if robot falls within next 25 timesteps (0.5 s), else `0`
+- `fall_label` — `1` if robot falls within next 25 timesteps (0.5 s) from this row, else `0`
+- `steps_to_fall` — (optional) number of timesteps until fall; `-1` if no fall in this episode
