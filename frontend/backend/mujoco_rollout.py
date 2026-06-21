@@ -122,6 +122,9 @@ def run_episode_controller(
     elif controller_type == "safe":
         from safe_controller import SafeController
         controller = SafeController(model, cfg, rng, enable_mpc=True)
+    elif controller_type == "reference":
+        from src.mujoco_collector.reference_controller import ReferenceWalkController
+        controller = ReferenceWalkController(model, cfg, rng)
     else:
         raise ValueError(f"Unknown controller: {controller_type}")
 
