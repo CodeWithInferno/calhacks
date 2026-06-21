@@ -131,6 +131,7 @@ def _sample_suite(suite: SuiteConfig, episode: int, base_seed: int) -> tuple[Epi
         cmd_yaw_rate=yaw,
         force=push,
         force_body="pelvis",
+        randomize=False,
     )
     meta = {
         "slope_deg": slope_deg,

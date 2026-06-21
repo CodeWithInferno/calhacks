@@ -203,6 +203,7 @@ def generate_rollout(params: dict, controller_type: str = "safe"):
         cmd_yaw_rate=0.0,
         force=np.zeros(3, dtype=np.float32),
         force_body="pelvis",
+        randomize=False,
     )
 
     frames, df = run_episode_controller(cfg, controller_type)

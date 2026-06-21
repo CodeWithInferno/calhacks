@@ -119,8 +119,15 @@ class EpisodeConfig:
     cmd_yaw_rate: float = 0.0
     force_body: str = "pelvis"
     force: np.ndarray = None
+    randomize: bool = True
 
     def __post_init__(self):
+        if self.cmd_vel is None:
+            self.cmd_vel = np.zeros(2, dtype=np.float32)
+        if self.force is None:
+            self.force = np.zeros(3, dtype=np.float32)
+        if not self.randomize:
+            return
         rng = np.random.default_rng(self.seed)
         self.slope_deg = float(rng.uniform(0.0, 30.0))
         self.friction = float(rng.uniform(0.5, 1.0))

@@ -167,6 +167,7 @@ def evaluate_params(args: tuple[int, GaitParams]) -> dict[str, Any]:
         cmd_yaw_rate=0.0,
         force=np.zeros(3, dtype=np.float32),
         force_body="pelvis",
+        randomize=False,
     )
     slope_rad = np.deg2rad(cfg.slope_deg)
     model = build_model(slope_rad, cfg.friction)
@@ -208,11 +209,13 @@ def evaluate_params(args: tuple[int, GaitParams]) -> dict[str, Any]:
             break
 
     duration = steps * STEP_DT
-    # Prefer controllers that stay alive; among survivors, reward forward distance.
+    # Prefer controllers that stay alive and move forward.
     if duration < 6.0:
         objective = -5.0 + last_x - 2.0 * abs(last_z - 0.70)
     else:
         objective = 10.0 * last_x + 0.5 * duration - 2.0 * abs(last_z - 0.70)
+        if last_x < 0.0:
+            objective += 10.0 * last_x  # extra penalty for walking backward
     return {
         "idx": idx,
         "params": asdict(params),
