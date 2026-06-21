@@ -139,10 +139,11 @@ class G1WalkEnv(gym.Env):
         # Forward world displacement is the clearest walking signal.
         dx = (base_pos[0] - self.last_base_pos[0]) / STEP_DT
         self.last_base_pos = base_pos.copy()
-        forward = 1.5 * dx
-        track = -0.3 * abs(dx - self.cmd_vel[0])
+        # Strongly reward forward progress in world x.
+        forward = 20.0 * dx
+        track = -2.0 * abs(dx - self.cmd_vel[0])
 
-        alive = 2.0
+        alive = 0.5
         upright = -1.0 * (pitch ** 2 + roll ** 2)
         height = -1.0 * (base_pos[2] - 0.70) ** 2
         energy = -0.0001 * np.sum(self.data.ctrl ** 2)

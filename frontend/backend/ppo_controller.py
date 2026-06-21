@@ -25,7 +25,7 @@ except Exception as exc:
     SB3_AVAILABLE = False
     SB3_ERROR = str(exc)
 
-DEFAULT_POLICY_PATH = Path("/home/hemad/calhacks/models/g1_ppo_walk_v2/g1_ppo_final.zip")
+DEFAULT_POLICY_PATH = Path("/home/hemad/calhacks/models/g1_ppo_walk_v3/g1_ppo_final.zip")
 
 
 def _resolve_policy_path(path: Path) -> Path:
