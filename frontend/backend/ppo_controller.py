@@ -25,7 +25,17 @@ except Exception as exc:
     SB3_AVAILABLE = False
     SB3_ERROR = str(exc)
 
-DEFAULT_POLICY_PATH = Path("/home/hemad/calhacks/models/g1_ppo_walk/g1_ppo_final.zip")
+DEFAULT_POLICY_PATH = Path("/home/hemad/calhacks/models/g1_ppo_walk_v2/g1_ppo_final.zip")
+
+
+def _resolve_policy_path(path: Path) -> Path:
+    if path.exists():
+        return path
+    # Fall back to newest checkpoint if final has not been saved yet.
+    checkpoints = sorted(path.parent.glob("g1_ppo_*_steps.zip"), key=lambda p: p.stat().st_mtime)
+    if checkpoints:
+        return checkpoints[-1]
+    raise FileNotFoundError(f"PPO policy not found at {path}")
 
 
 class PPOController:
@@ -36,9 +46,7 @@ class PPOController:
             raise RuntimeError(f"stable-baselines3 not available: {SB3_ERROR}")
         self.cfg = cfg
         self.rng = rng
-        self.policy_path = Path(policy_path or DEFAULT_POLICY_PATH)
-        if not self.policy_path.exists():
-            raise FileNotFoundError(f"PPO policy not found at {self.policy_path}")
+        self.policy_path = _resolve_policy_path(Path(policy_path or DEFAULT_POLICY_PATH))
 
         self.policy = PPO.load(self.policy_path, device="auto")
         self.joint_ids = np.array([model.joint(n).id for n in JOINT_NAMES], dtype=np.int32)
