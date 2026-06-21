@@ -1,7 +1,4 @@
-"""
-Run world model inference on a CSV of states.
-Outputs risk probabilities and optional decision flags.
-"""
+"""Run world model inference on a CSV of states."""
 
 import os
 import yaml
@@ -16,11 +13,13 @@ from train_world_model import FallPredictorGRU, FallPredictorMLP, load_schema
 def load_model(output_dir, input_dim, window_size, cfg):
     model_type = cfg["model_type"]
     hidden_dim = cfg["hidden_dim"]
+    num_layers = cfg.get("num_layers", 1)
+    dropout = cfg.get("dropout", 0.0)
 
     if model_type == "mlp":
-        model = FallPredictorMLP(input_dim * window_size, hidden_dim)
+        model = FallPredictorMLP(input_dim * window_size, hidden_dim, num_layers, dropout)
     elif model_type == "gru":
-        model = FallPredictorGRU(input_dim, hidden_dim)
+        model = FallPredictorGRU(input_dim, hidden_dim, num_layers, dropout)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -48,6 +47,8 @@ def run_inference(csv_path, output_path=None, config_path="src/config.yaml", ris
     df[feature_cols] = (df[feature_cols] - means) / stds
 
     model = load_model(output_dir, len(feature_cols), window_size, cfg)
+    device = next(model.parameters()).device
+    model = model.to(device)
 
     predictions = []
     episodes = df[episode_id_col].unique()
@@ -64,7 +65,7 @@ def run_inference(csv_path, output_path=None, config_path="src/config.yaml", ris
                     predictions.append(np.nan)
                     continue
                 window = features[i - window_size : i]
-                x = torch.tensor(window, dtype=torch.float32).unsqueeze(0)
+                x = torch.tensor(window, dtype=torch.float32).unsqueeze(0).to(device)
                 logit = model(x).item()
                 prob = 1.0 / (1.0 + np.exp(-logit))
                 predictions.append(prob)
@@ -81,12 +82,11 @@ def run_inference(csv_path, output_path=None, config_path="src/config.yaml", ris
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True, help="Path to input CSV")
-    parser.add_argument("--output", default="data/predictions.csv", help="Path to output CSV")
-    parser.add_argument("--config", default="src/config.yaml", help="Path to config YAML")
-    parser.add_argument("--threshold", type=float, default=0.5, help="Risk threshold")
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--output", default="data/predictions.csv")
+    parser.add_argument("--config", default="src/config.yaml")
+    parser.add_argument("--threshold", type=float, default=0.5)
     args = parser.parse_args()
-
     run_inference(args.input, args.output, args.config, args.threshold)
 
 

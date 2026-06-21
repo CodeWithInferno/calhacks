@@ -1,16 +1,26 @@
 """
-Train a tiny world model to predict fall probability on slope + load data.
+Train a world model to predict fall probability.
+Includes checkpointing, CSV logging, metrics, early stopping, LR scheduler.
 """
 
 import os
+import time
 import yaml
+import argparse
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score, accuracy_score
+from sklearn.metrics import (
+    roc_auc_score,
+    average_precision_score,
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+)
 
 
 class FallDataset(Dataset):
@@ -26,29 +36,32 @@ class FallDataset(Dataset):
 
 
 class FallPredictorMLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim=128):
+    def __init__(self, input_dim, hidden_dim=128, num_layers=3, dropout=0.2):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(hidden_dim, 1),
-        )
+        layers = [nn.Linear(input_dim, hidden_dim), nn.ReLU(), nn.Dropout(dropout)]
+        for _ in range(num_layers - 1):
+            layers += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), nn.Dropout(dropout)]
+        layers.append(nn.Linear(hidden_dim, 1))
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.net(x).squeeze(-1)
 
 
 class FallPredictorGRU(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64):
+    def __init__(self, input_dim, hidden_dim=64, num_layers=2, dropout=0.2):
         super().__init__()
-        self.gru = nn.GRU(input_dim, hidden_dim, batch_first=True)
+        self.gru = nn.GRU(
+            input_dim,
+            hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0.0,
+        )
         self.head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, 1),
         )
 
@@ -66,7 +79,7 @@ def build_windows(df, feature_cols, episode_id_col, label_col, window_size=10):
     windows = []
     labels = []
 
-    for _, ep_df in df.groupby(episode_id_col):
+    for _, ep_df in df.groupby(episode_id_col, sort=False):
         features = ep_df[feature_cols].to_numpy(dtype=np.float32)
         lbls = ep_df[label_col].to_numpy(dtype=np.float32)
         n = len(features)
@@ -85,17 +98,60 @@ def build_windows(df, feature_cols, episode_id_col, label_col, window_size=10):
     return np.concatenate(windows), np.concatenate(labels)
 
 
+def compute_metrics(y_true, y_score, threshold=0.5):
+    y_pred = (y_score > threshold).astype(int)
+    return {
+        "auc": roc_auc_score(y_true, y_score),
+        "ap": average_precision_score(y_true, y_score),
+        "accuracy": accuracy_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, zero_division=0),
+        "recall": recall_score(y_true, y_pred, zero_division=0),
+        "f1": f1_score(y_true, y_pred, zero_division=0),
+    }
+
+
+def evaluate_model(model, loader, device):
+    model.eval()
+    all_scores = []
+    all_labels = []
+    total_loss = 0.0
+    criterion = nn.BCEWithLogitsLoss()
+
+    with torch.no_grad():
+        for xb, yb in loader:
+            xb, yb = xb.to(device), yb.to(device)
+            logits = model(xb)
+            loss = criterion(logits, yb)
+            total_loss += loss.item() * len(yb)
+            scores = torch.sigmoid(logits).cpu().numpy()
+            all_scores.extend(scores)
+            all_labels.extend(yb.cpu().numpy())
+
+    y_true = np.array(all_labels)
+    y_score = np.array(all_scores)
+    metrics = compute_metrics(y_true, y_score)
+    metrics["loss"] = total_loss / len(loader.dataset)
+    return metrics
+
+
 def train(cfg):
     data_path = cfg["data_path"]
     window_size = cfg["window_size"]
-    hidden_dim = cfg["hidden_dim"]
     model_type = cfg["model_type"]
+    hidden_dim = cfg["hidden_dim"]
+    num_layers = cfg["num_layers"]
+    dropout = cfg["dropout"]
     batch_size = cfg["batch_size"]
     epochs = cfg["epochs"]
     lr = cfg["learning_rate"]
+    weight_decay = cfg.get("weight_decay", 0.0)
     output_dir = cfg["output_dir"]
+    patience = cfg.get("patience", 10)
+    val_frac = cfg.get("val_frac", 0.1)
+    save_every = cfg.get("save_every", 1)
 
     os.makedirs(output_dir, exist_ok=True)
+    log_path = os.path.join(output_dir, "training_log.csv")
 
     schema = load_schema()
     feature_cols = schema["feature_cols"]
@@ -103,102 +159,200 @@ def train(cfg):
     label_col = schema["label_col"]
 
     df = pd.read_csv(data_path)
-
-    # Ensure required columns exist.
     missing = [c for c in feature_cols + [episode_id_col, label_col] if c not in df.columns]
     if missing:
         raise ValueError(f"Missing columns in CSV: {missing}")
 
+    # Save artifacts.
+    with open(os.path.join(output_dir, "config.yaml"), "w") as f:
+        yaml.dump(cfg, f)
+    with open(os.path.join(output_dir, "schema.yaml"), "w") as f:
+        yaml.dump(schema, f)
+
+    # Normalize.
     feature_means = df[feature_cols].mean()
     feature_stds = df[feature_cols].std().replace(0, 1.0)
     df[feature_cols] = (df[feature_cols] - feature_means) / feature_stds
-
     feature_means.to_csv(os.path.join(output_dir, "feature_means.csv"))
     feature_stds.to_csv(os.path.join(output_dir, "feature_stds.csv"))
-
-    # Save schema for inference.
-    with open(os.path.join(output_dir, "schema.yaml"), "w") as f:
-        yaml.dump(schema, f)
 
     print(f"Building windows of size {window_size}...")
     windows, labels = build_windows(df, feature_cols, episode_id_col, label_col, window_size)
     print(f"Total windows: {len(labels)}, fall rate: {labels.mean():.3f}")
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        windows, labels, test_size=0.2, random_state=42, stratify=labels
+    # Split: train / val / test by windows (note: episode leakage possible).
+    X_trainval, X_test, y_trainval, y_test = train_test_split(
+        windows, labels, test_size=0.15, random_state=42, stratify=labels
     )
+    if val_frac > 0:
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_trainval,
+            y_trainval,
+            test_size=val_frac / (1 - 0.15),
+            random_state=42,
+            stratify=y_trainval,
+        )
+    else:
+        X_train, X_val, y_train, y_val = X_trainval, X_test, y_trainval, y_test
 
     input_dim = len(feature_cols)
 
     if model_type == "mlp":
-        model = FallPredictorMLP(input_dim * window_size, hidden_dim)
+        model = FallPredictorMLP(input_dim * window_size, hidden_dim, num_layers, dropout)
         X_train = X_train.reshape(X_train.shape[0], -1)
+        X_val = X_val.reshape(X_val.shape[0], -1)
         X_test = X_test.reshape(X_test.shape[0], -1)
     elif model_type == "gru":
-        model = FallPredictorGRU(input_dim, hidden_dim)
+        model = FallPredictorGRU(input_dim, hidden_dim, num_layers, dropout)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
-    train_ds = FallDataset(X_train, y_train)
-    test_ds = FallDataset(X_test, y_test)
-
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Model: {model_type} | params: {total_params:,} | layers: {num_layers} | hidden: {hidden_dim}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
     print(f"Training on {device}")
     model = model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.BCEWithLogitsLoss()
+    train_ds = FallDataset(X_train, y_train)
+    val_ds = FallDataset(X_val, y_val)
+    test_ds = FallDataset(X_test, y_test)
 
-    best_auc = 0.0
-    for epoch in range(epochs):
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    criterion = nn.BCEWithLogitsLoss()
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="max", factor=0.5, patience=patience // 2
+    )
+
+    # Logging.
+    log_columns = [
+        "epoch",
+        "train_loss",
+        "val_loss",
+        "val_auc",
+        "val_ap",
+        "val_acc",
+        "val_f1",
+        "lr",
+        "epoch_time",
+    ]
+    with open(log_path, "w") as f:
+        f.write(",".join(log_columns) + "\n")
+
+    best_auc = -1.0
+    epochs_no_improve = 0
+    start_epoch = 1
+
+    # Resume from checkpoint if exists.
+    checkpoint_path = os.path.join(output_dir, "last_checkpoint.pt")
+    if os.path.exists(checkpoint_path):
+        print(f"Resuming from {checkpoint_path}")
+        ckpt = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(ckpt["model_state_dict"])
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        start_epoch = ckpt["epoch"] + 1
+        best_auc = ckpt.get("best_auc", -1.0)
+
+    for epoch in range(start_epoch, epochs + 1):
+        t0 = time.time()
+
         model.train()
         total_loss = 0.0
         for xb, yb in train_loader:
             xb, yb = xb.to(device), yb.to(device)
             optimizer.zero_grad()
             logits = model(xb)
-            if torch.isnan(logits).any():
-                raise RuntimeError("NaN logits detected")
             loss = criterion(logits, yb)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             total_loss += loss.item() * len(yb)
 
-        model.eval()
-        all_preds = []
-        all_labels = []
-        with torch.no_grad():
-            for xb, yb in test_loader:
-                xb = xb.to(device)
-                logits = model(xb).cpu().numpy()
-                pred = 1.0 / (1.0 + np.exp(-logits))
-                all_preds.extend(pred)
-                all_labels.extend(yb.numpy())
+        train_loss = total_loss / len(train_loader.dataset)
+        val_metrics = evaluate_model(model, val_loader, device)
+        lr_now = optimizer.param_groups[0]["lr"]
 
-        all_preds = np.array(all_preds)
-        all_labels = np.array(all_labels)
-
-        auc = roc_auc_score(all_labels, all_preds)
-        acc = accuracy_score(all_labels, all_preds > 0.5)
-        avg_loss = total_loss / len(train_loader.dataset)
+        epoch_time = time.time() - t0
+        log_row = {
+            "epoch": epoch,
+            "train_loss": f"{train_loss:.6f}",
+            "val_loss": f"{val_metrics['loss']:.6f}",
+            "val_auc": f"{val_metrics['auc']:.4f}",
+            "val_ap": f"{val_metrics['ap']:.4f}",
+            "val_acc": f"{val_metrics['accuracy']:.4f}",
+            "val_f1": f"{val_metrics['f1']:.4f}",
+            "lr": f"{lr_now:.6f}",
+            "epoch_time": f"{epoch_time:.2f}",
+        }
+        with open(log_path, "a") as f:
+            f.write(",".join(str(log_row[c]) for c in log_columns) + "\n")
 
         print(
-            f"Epoch {epoch+1}/{epochs} | loss: {avg_loss:.4f} | test AUC: {auc:.4f} | test acc: {acc:.4f}"
+            f"Epoch {epoch:3d}/{epochs} | train_loss: {train_loss:.4f} | "
+            f"val_loss: {val_metrics['loss']:.4f} | val_auc: {val_metrics['auc']:.4f} | "
+            f"val_f1: {val_metrics['f1']:.4f} | lr: {lr_now:.6f} | time: {epoch_time:.1f}s"
         )
 
-        if auc > best_auc:
-            best_auc = auc
-            torch.save(model.state_dict(), os.path.join(output_dir, "best_model.pt"))
+        scheduler.step(val_metrics["auc"])
 
-    print(f"Best test AUC: {best_auc:.4f}")
+        # Checkpointing.
+        is_best = val_metrics["auc"] > best_auc
+        if is_best:
+            best_auc = val_metrics["auc"]
+            epochs_no_improve = 0
+            torch.save(model.state_dict(), os.path.join(output_dir, "best_model.pt"))
+        else:
+            epochs_no_improve += 1
+
+        if epoch % save_every == 0 or is_best:
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "best_auc": best_auc,
+                    "val_metrics": val_metrics,
+                },
+                checkpoint_path,
+            )
+
+        if epochs_no_improve >= patience:
+            print(f"Early stopping at epoch {epoch}")
+            break
+
+    # Final test eval.
+    test_metrics = evaluate_model(model, test_loader, device)
+    print("\nFinal test metrics:")
+    for k, v in test_metrics.items():
+        print(f"  {k}: {v:.4f}")
+
+    # Save final checkpoint.
+    torch.save(
+        {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "best_auc": best_auc,
+            "test_metrics": test_metrics,
+        },
+        os.path.join(output_dir, "final_checkpoint.pt"),
+    )
+
+    print(f"\nBest val AUC: {best_auc:.4f}")
     print(f"Model saved to {output_dir}")
 
 
 if __name__ == "__main__":
-    with open("src/config.yaml") as f:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="src/config.yaml")
+    args = parser.parse_args()
+
+    with open(args.config) as f:
         cfg = yaml.safe_load(f)
     train(cfg)
