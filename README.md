@@ -4,6 +4,8 @@ A learned world model + walking controller stack for the Unitree G1 humanoid. It
 
 > **Status:** World model is trained and verified (test AUC **0.9971**). PPO walking policy v4 is training on the Nebius VM; the 1.5M-step checkpoint walks ~1.5 m on flat ground and handles mild slopes for ~1 s.
 
+![Results summary](results/results_report.png)
+
 ---
 
 ## What it does
