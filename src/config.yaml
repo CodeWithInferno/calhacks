@@ -1,0 +1,8 @@
+data_path: data/demo_slope_load_data.csv
+window_size: 10
+model_type: gru
+hidden_dim: 64
+batch_size: 256
+epochs: 30
+learning_rate: 0.001
+output_dir: models/world_model
