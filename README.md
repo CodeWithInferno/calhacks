@@ -1,6 +1,48 @@
 # G1 Load & Slope Risk Copilot
 
-A learned world model that predicts whether a Unitree G1 humanoid will fall within the next N steps while walking on a slope and carrying a virtual external load.
+A learned world model + walking controller stack for the Unitree G1 humanoid. It predicts fall risk from real-time MuJoCo state and now runs a learned PPO walking policy in the loop.
+
+> **Status:** World model is trained and verified (test AUC **0.9971**). PPO walking policy v4 is training on the Nebius VM; the 1.5M-step checkpoint walks ~1.5 m on flat ground and handles mild slopes for ~1 s.
+
+---
+
+## What it does
+
+1. **Simulates** Unitree G1 in MuJoCo on slopes with external forces.
+2. **Predicts** per-timestep fall risk with a GRU world model.
+3. **Controls** the robot with either a heuristic, safe-MPC, reference gait, or PPO policy.
+4. **Serves** rollouts through a FastAPI backend with a web-based trajectory viewer.
+5. **Benchmarks** controllers across terrain suites (flat, slope, SF hills).
+
+---
+
+## Repo layout
+
+```
+.
+├── configs/                    # Training YAML configs
+├── data/                       # Generated MuJoCo rollouts (not in git, ~1 GB)
+├── frontend/                   # React + FastAPI demo
+│   ├── backend/
+│   │   ├── app.py              # FastAPI server
+│   │   ├── mujoco_rollout.py   # Real MuJoCo episode runner
+│   │   ├── ppo_controller.py   # Loads trained PPO policy
+│   │   ├── safe_controller.py  # MPC safety layer over heuristic
+│   │   ├── risk_model.py       # GRU fall-risk scorer
+│   │   └── benchmark.py        # Production benchmark suite
+│   └── src/                    # React frontend
+├── models/                     # Trained checkpoints (not in git except noted)
+├── src/
+│   ├── train_world_model.py    # GRU training
+│   ├── infer.py / evaluate.py  # Offline inference & metrics
+│   ├── mujoco_collector/       # MuJoCo data collection & controllers
+│   └── mujoco_rl/              # PPO training env + script
+├── DATA_SCHEMA.md              # CSV column docs
+├── NEBIUS_SETUP.md             # VM setup notes
+└── requirements.txt
+```
+
+---
 
 ## Quick start
 
@@ -9,65 +51,116 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Generate demo synthetic data
-python src/generate_demo_data.py
+# 1. Generate / collect MuJoCo data
+python -m src.mujoco_collector.collector --episodes 2048 --workers 16
 
-# Train the world model
+# 2. Train the fall-risk world model
 python src/train_world_model.py --config configs/mujoco_valloss.yaml
 
-# Run inference
-python src/infer.py --input data/demo_slope_load_data.csv --output data/predictions.csv
+# 3. Verify independently
+python verify_model.py
 
-# Evaluate
-python src/evaluate.py --input data/predictions.csv
+# 4. Train the PPO walking policy
+python src/mujoco_rl/train_ppo.py --output models/g1_ppo_walk_v4 --steps 5000000 --n-envs 16
 
-# Visualize one episode
-python src/viz.py --input data/predictions.csv --episode 5 --output data/viz_episode_5.png
-
-# Plot training curves
-python src/plot_training_log.py --log models/mujoco_large_split/training_log.csv --output data/training_curves.png
+# 5. Run the backend
+python frontend/backend/app.py
 ```
 
-## Pipeline
+---
 
-1. **Data collection** (`src/mujoco_collector/collector.py`): MuJoCo rollouts of G1 on random slopes + force vectors → `data/g1_mujoco_data.csv`.
-2. **Training** (`src/train_world_model.py`): normalizes features, builds sliding windows, splits by episode, trains a GRU/MLP classifier with checkpoints, logs, and early stopping.
-3. **Inference** (`src/infer.py`): appends `fall_risk` and `risk_flag` columns to a CSV.
-4. **Visualization** (`src/viz.py`): plots risk curve vs. state for a selected episode.
+## World model results
 
-## Current model
+| Metric | Value |
+|--------|-------|
+| Test AUC | **0.9971** |
+| Test F1  | **0.9798** |
+| Test accuracy | **0.9744** |
+| Architecture | 2-layer GRU + MLP head, ~220k params |
+| Input | 10-timestep sliding window of state + slope + force |
+| Best checkpoint | `models/mujoco_valloss/best_model.pt` |
 
-- **Architecture:** 2-layer GRU, 128 hidden units, ~220k parameters.
-- **Input:** sliding window of 10 timesteps of state + slope + force features.
-- **Output:** probability of fall within prediction horizon.
-- **Training:** AdamW, ReduceLROnPlateau, early stopping, checkpointing, CSV logging.
-- **Best checkpoint:** `models/mujoco_valloss/best_model.pt`
-- **Episode-split validation:** test AUC **0.9953**, test F1 **0.9724**, best val loss **0.1134**.
+The backend bundles a copy at `frontend/backend/model/mujoco_valloss/best_model.pt`.
 
-See `models/mujoco_valloss/training_report.html` for interactive curves.
+---
 
-## Real MuJoCo data
+## Controllers
 
-The collector runs on the Nebius VM:
+| Controller | Description | Status |
+|------------|-------------|--------|
+| `heuristic` | Hand-tuned balance + velocity tracking | Falls frequently on hard terrain |
+| `safe`      | Heuristic + 5-candidate MPC safety layer | Reduces risk, still falls on steep slopes |
+| `reference` | Phase-based sinusoidal gait | Work in progress |
+| `ppo`       | Stable-Baselines3 PPO trained in MuJoCo | **Best current policy; v4 training** |
+
+Switch controllers via the backend rollout endpoint (`controller_type`) or benchmark:
 
 ```bash
-source /home/hemad/miniconda3/etc/profile.d/conda.sh
-conda activate env_calhacks
-cd /home/hemad/calhacks
-python -m src.mujoco_collector.collector --episodes 2048 --workers 16
+python frontend/backend/benchmark.py --controllers ppo safe heuristic
 ```
 
-It produces `/home/hemad/calhacks/data/g1_mujoco_data.csv` (91k+ rows, 2k episodes). The Unitree ONNX velocity policy was unstable in this MJCF, so the collector uses a robust heuristic balance/velocity controller.
+---
 
-## Data schema
+## PPO training
 
-See `DATA_SCHEMA.md` for the exact CSV columns.
+Training happens on the Nebius L40S VM inside `tmux` session `ppo_v4`:
 
-To adapt to a different CSV, update `src/schema.yaml` with the exact column names and run training again.
+```bash
+ssh hemad@195.242.29.248
+tmux attach -t ppo_v4
+# or tail the log
+tail -f /tmp/ppo_v4.log
+```
 
-## Nebius cloud training
+Recent flat-ground performance (seed 42, speed 0.5 m/s):
 
-See `NEBIUS_SETUP.md`.
+| Checkpoint | Duration | Distance | Notes |
+|------------|----------|----------|-------|
+| 500k       | 0.92 s   | 0.64 m   | Forward motion, falls |
+| 1.0M       | 0.88 s   | 0.69 m   | Slightly better |
+| 1.5M       | 1.36 s   | 1.50 m   | Clear forward walking |
+
+The policy is expected to improve further up to the 5M final checkpoint.
+
+---
+
+## Backend API
+
+The FastAPI server runs on `http://localhost:8000`.
+
+Generate a rollout:
+
+```bash
+curl -X POST "http://localhost:8000/rollout" \
+  -H "Content-Type: application/json" \
+  -d '{"seconds":8,"incline_deg":0,"friction":1.0,"speed_mps":0.5,"controller":"ppo"}'
+```
+
+Response contains frames with joint angles, root transform, and `risk_score` per frame.
+
+---
+
+## Benchmark suites
+
+`frontend/backend/benchmark.py` runs 500 episodes across:
+
+- `easy_flat`
+- `medium_slope`
+- `hard_slope`
+- `filbert_street` (31.5% grade)
+- `bradford_street` (41% grade)
+
+Outputs CSV + JSON summary in `results/benchmark/`.
+
+---
+
+## Notes
+
+- `data/*.csv` and most `models/` directories are gitignored because they are large (100 MB–1 GB). The small backend model copy in `frontend/backend/model/` is included.
+- The PPO policy currently being trained is saved on the VM at `models/g1_ppo_walk_v4/` and will be copied into the repo after the final checkpoint is ready.
+- Unitree’s official ONNX velocity policy was unstable in this MJCF (trained on IsaacLab USD), so we retrained PPO directly in MuJoCo.
+
+---
 
 ## Team
 
