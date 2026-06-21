@@ -57,23 +57,27 @@ class FallPredictorGRU(nn.Module):
         return self.head(h[-1]).squeeze(-1)
 
 
-def build_windows(df, feature_cols, window_size=10):
+def load_schema(path="src/schema.yaml"):
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+def build_windows(df, feature_cols, episode_id_col, label_col, window_size=10):
     windows = []
     labels = []
 
-    for _, ep_df in df.groupby("episode_id"):
+    for _, ep_df in df.groupby(episode_id_col):
         features = ep_df[feature_cols].to_numpy(dtype=np.float32)
-        lbls = ep_df["fall_label"].to_numpy(dtype=np.float32)
+        lbls = ep_df[label_col].to_numpy(dtype=np.float32)
         n = len(features)
         if n <= window_size:
             continue
 
-        # Vectorized sliding windows.
         shape = (n - window_size, window_size, features.shape[1])
-        stride_0 = features.strides[0]
-        stride_1 = features.strides[1]
         ws = np.lib.stride_tricks.as_strided(
-            features, shape=shape, strides=(stride_0, stride_0, stride_1)
+            features,
+            shape=shape,
+            strides=(features.strides[0], features.strides[0], features.strides[1]),
         )
         windows.append(ws)
         labels.append(lbls[window_size:])
@@ -93,26 +97,17 @@ def train(cfg):
 
     os.makedirs(output_dir, exist_ok=True)
 
+    schema = load_schema()
+    feature_cols = schema["feature_cols"]
+    episode_id_col = schema["episode_id_col"]
+    label_col = schema["label_col"]
+
     df = pd.read_csv(data_path)
 
-    feature_cols = [
-        "slope_angle_deg",
-        "base_roll",
-        "base_pitch",
-        "base_pitch_rate",
-        "base_vel_x",
-        "base_height",
-        "left_hip",
-        "right_hip",
-        "left_knee",
-        "right_knee",
-        "left_ankle",
-        "right_ankle",
-        "force_mag",
-        "force_x",
-        "force_z",
-        "force_application_point",
-    ]
+    # Ensure required columns exist.
+    missing = [c for c in feature_cols + [episode_id_col, label_col] if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing columns in CSV: {missing}")
 
     feature_means = df[feature_cols].mean()
     feature_stds = df[feature_cols].std().replace(0, 1.0)
@@ -121,8 +116,12 @@ def train(cfg):
     feature_means.to_csv(os.path.join(output_dir, "feature_means.csv"))
     feature_stds.to_csv(os.path.join(output_dir, "feature_stds.csv"))
 
+    # Save schema for inference.
+    with open(os.path.join(output_dir, "schema.yaml"), "w") as f:
+        yaml.dump(schema, f)
+
     print(f"Building windows of size {window_size}...")
-    windows, labels = build_windows(df, feature_cols, window_size)
+    windows, labels = build_windows(df, feature_cols, episode_id_col, label_col, window_size)
     print(f"Total windows: {len(labels)}, fall rate: {labels.mean():.3f}")
 
     X_train, X_test, y_train, y_test = train_test_split(

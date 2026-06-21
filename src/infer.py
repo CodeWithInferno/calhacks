@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from train_world_model import FallPredictorGRU, FallPredictorMLP
+from train_world_model import FallPredictorGRU, FallPredictorMLP, load_schema
 
 
 def load_model(output_dir, input_dim, window_size, cfg):
@@ -29,47 +29,32 @@ def load_model(output_dir, input_dim, window_size, cfg):
     return model
 
 
-def run_inference(csv_path, output_path=None, risk_threshold=0.5):
-    with open("src/config.yaml") as f:
+def run_inference(csv_path, output_path=None, config_path="src/config.yaml", risk_threshold=0.5):
+    with open(config_path) as f:
         cfg = yaml.safe_load(f)
 
     output_dir = cfg["output_dir"]
     window_size = cfg["window_size"]
 
-    feature_cols = [
-        "slope_angle_deg",
-        "base_roll",
-        "base_pitch",
-        "base_pitch_rate",
-        "base_vel_x",
-        "base_height",
-        "left_hip",
-        "right_hip",
-        "left_knee",
-        "right_knee",
-        "left_ankle",
-        "right_ankle",
-        "force_mag",
-        "force_x",
-        "force_z",
-        "force_application_point",
-    ]
+    schema = load_schema(os.path.join(output_dir, "schema.yaml"))
+    feature_cols = schema["feature_cols"]
+    episode_id_col = schema["episode_id_col"]
+    label_col = schema["label_col"]
 
     df = pd.read_csv(csv_path)
     means = pd.read_csv(os.path.join(output_dir, "feature_means.csv"), index_col=0)["0"]
     stds = pd.read_csv(os.path.join(output_dir, "feature_stds.csv"), index_col=0)["0"]
 
-    # Normalize.
     df[feature_cols] = (df[feature_cols] - means) / stds
 
     model = load_model(output_dir, len(feature_cols), window_size, cfg)
 
     predictions = []
-    episodes = df["episode_id"].unique()
+    episodes = df[episode_id_col].unique()
 
     with torch.no_grad():
         for ep in episodes:
-            ep_df = df[df["episode_id"] == ep].reset_index(drop=True)
+            ep_df = df[df[episode_id_col] == ep].reset_index(drop=True)
             if len(ep_df) < window_size:
                 predictions.extend([np.nan] * len(ep_df))
                 continue
@@ -98,10 +83,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, help="Path to input CSV")
     parser.add_argument("--output", default="data/predictions.csv", help="Path to output CSV")
+    parser.add_argument("--config", default="src/config.yaml", help="Path to config YAML")
     parser.add_argument("--threshold", type=float, default=0.5, help="Risk threshold")
     args = parser.parse_args()
 
-    run_inference(args.input, args.output, args.threshold)
+    run_inference(args.input, args.output, args.config, args.threshold)
 
 
 if __name__ == "__main__":

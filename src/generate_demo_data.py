@@ -1,6 +1,4 @@
-"""
-Generate synthetic demo data for G1 slope + load world model.
-"""
+"""Generate synthetic demo rollouts matching the real G1 data schema."""
 
 import os
 import numpy as np
@@ -9,77 +7,109 @@ import pandas as pd
 
 def generate_rollout(
     slope_angle_deg: float,
+    friction: float,
     force_mag: float,
-    force_point: int,
+    force_body: int,
     seed: int,
     dt: float = 0.02,
     max_steps: int = 300,
-    fall_prediction_horizon: int = 25,
+    horizon: int = 25,
 ):
     rng = np.random.default_rng(seed)
     slope = np.deg2rad(slope_angle_deg)
 
-    stability_budget = 0.55 - 0.022 * slope_angle_deg - 0.0025 * force_mag
+    # Stability budget: lower -> easier to fall.
+    stability_budget = 0.6 - 0.025 * slope_angle_deg - 0.0025 * force_mag - 0.1 * (1.0 - friction)
     stability_budget += rng.normal(0, 0.08)
 
-    t = np.arange(max_steps)
+    t = np.arange(max_steps) * dt
+    timestep = np.arange(max_steps)
 
-    base_pitch = slope + rng.normal(0, 0.06, size=max_steps)
-    base_roll = rng.normal(0, 0.06, size=max_steps)
-    base_pitch_rate = rng.normal(0, 0.06, size=max_steps) + 0.03 * (slope_angle_deg / 25.0)
+    # Base orientation and velocity.
+    base_pos_x = np.cumsum(rng.normal(0.5, 0.05, size=max_steps) * dt)
+    base_pos_y = rng.normal(0, 0.02, size=max_steps)
+    base_pos_z = 0.8 - 0.0005 * force_mag * timestep / max_steps + rng.normal(0, 0.005, size=max_steps)
+
+    base_quat_w = np.ones(max_steps) + rng.normal(0, 0.01, size=max_steps)
+    base_quat_x = rng.normal(0, 0.03, size=max_steps)
+    base_quat_y = np.full(max_steps, np.sin(slope / 2)) + rng.normal(0, 0.04, size=max_steps)
+    base_quat_z = np.full(max_steps, np.cos(slope / 2)) + rng.normal(0, 0.01, size=max_steps)
+
     base_vel_x = 0.5 - 0.002 * force_mag + rng.normal(0, 0.05, size=max_steps)
-    base_height = 0.8 - 0.0005 * force_mag * t / max_steps + rng.normal(0, 0.005, size=max_steps)
+    base_vel_y = rng.normal(0, 0.02, size=max_steps)
+    base_vel_z = rng.normal(0, 0.02, size=max_steps)
 
-    phase = 2 * np.pi * 1.0 * t * dt
-    left_hip = -0.1 + 0.2 * np.sin(phase)
-    right_hip = -0.1 + 0.2 * np.sin(phase + np.pi)
-    left_knee = 0.3 + 0.3 * np.sin(phase + np.pi / 2)
-    right_knee = 0.3 + 0.3 * np.sin(phase + np.pi / 2 + np.pi)
-    left_ankle = -0.2 + rng.normal(0, 0.02, size=max_steps)
-    right_ankle = -0.2 + rng.normal(0, 0.02, size=max_steps)
+    base_ang_vel_x = rng.normal(0, 0.05, size=max_steps)
+    base_ang_vel_y = rng.normal(0, 0.06, size=max_steps) + 0.03 * (slope_angle_deg / 25.0)
+    base_ang_vel_z = rng.normal(0, 0.03, size=max_steps)
+
+    projected_gravity_x = rng.normal(0, 0.05, size=max_steps)
+    projected_gravity_y = rng.normal(0, 0.05, size=max_steps)
+    projected_gravity_z = -1.0 + rng.normal(0, 0.05, size=max_steps)
+
+    cmd_vel_x = np.full(max_steps, 0.5)
+    cmd_vel_y = np.zeros(max_steps)
+    cmd_yaw_rate = np.zeros(max_steps)
 
     force_x = -force_mag * 0.7
+    force_y = force_mag * 0.1
     force_z = -force_mag * 0.7
+    force_app_x = base_pos_x + rng.normal(0, 0.05)
+    force_app_y = base_pos_y + rng.normal(0, 0.05)
+    force_app_z = base_pos_z + 0.3 + rng.normal(0, 0.05)
 
+    # Stability metric.
     stability = (
         stability_budget
-        - 0.5 * np.abs(base_roll)
-        - 0.3 * np.abs(base_pitch - slope)
-        - 0.1 * np.abs(base_pitch_rate)
+        - 0.5 * np.abs(base_quat_x)
+        - 0.3 * np.abs(base_quat_y - np.sin(slope / 2))
+        - 0.2 * np.abs(base_ang_vel_y)
         - 0.02 * force_mag
         + 0.05 * base_vel_x
     )
 
-    # Trigger fall at first t > 20 where stability < 0.
-    fall_candidates = np.where((stability < 0) & (t > 20))[0]
+    fall_candidates = np.where((stability < 0) & (timestep > 20))[0]
     fall_step = int(fall_candidates[0]) if len(fall_candidates) > 0 else None
 
     fall_label = np.zeros(max_steps, dtype=int)
     steps_to_fall = np.full(max_steps, -1, dtype=int)
     if fall_step is not None:
-        mask = (t <= fall_step) & (fall_step <= t + fall_prediction_horizon)
+        mask = (timestep <= fall_step) & (fall_step <= timestep + horizon)
         fall_label[mask] = 1
-        steps_to_fall[mask] = fall_step - t[mask]
+        steps_to_fall[mask] = fall_step - timestep[mask]
 
     df = pd.DataFrame({
-        "time": t * dt,
         "episode_id": seed,
+        "time": t,
+        "timestep": timestep,
         "slope_angle_deg": slope_angle_deg,
-        "base_roll": base_roll,
-        "base_pitch": base_pitch,
-        "base_pitch_rate": base_pitch_rate,
+        "friction": friction,
+        "base_pos_x": base_pos_x,
+        "base_pos_y": base_pos_y,
+        "base_pos_z": base_pos_z,
+        "base_quat_w": base_quat_w,
+        "base_quat_x": base_quat_x,
+        "base_quat_y": base_quat_y,
+        "base_quat_z": base_quat_z,
         "base_vel_x": base_vel_x,
-        "base_height": base_height,
-        "left_hip": left_hip,
-        "right_hip": right_hip,
-        "left_knee": left_knee,
-        "right_knee": right_knee,
-        "left_ankle": left_ankle,
-        "right_ankle": right_ankle,
+        "base_vel_y": base_vel_y,
+        "base_vel_z": base_vel_z,
+        "base_ang_vel_x": base_ang_vel_x,
+        "base_ang_vel_y": base_ang_vel_y,
+        "base_ang_vel_z": base_ang_vel_z,
+        "projected_gravity_x": projected_gravity_x,
+        "projected_gravity_y": projected_gravity_y,
+        "projected_gravity_z": projected_gravity_z,
+        "cmd_vel_x": cmd_vel_x,
+        "cmd_vel_y": cmd_vel_y,
+        "cmd_yaw_rate": cmd_yaw_rate,
         "force_mag": force_mag,
         "force_x": force_x,
+        "force_y": force_y,
         "force_z": force_z,
-        "force_application_point": force_point,
+        "force_app_x": force_app_x,
+        "force_app_y": force_app_y,
+        "force_app_z": force_app_z,
         "fall_label": fall_label,
         "steps_to_fall": steps_to_fall,
     })
@@ -88,25 +118,21 @@ def generate_rollout(
 
 
 def main():
-    out_dir = "data"
-    os.makedirs(out_dir, exist_ok=True)
-
-    n_rollouts = 500
+    os.makedirs("data", exist_ok=True)
     rng = np.random.default_rng(42)
 
     frames = []
-    for i in range(n_rollouts):
+    for i in range(500):
         slope = rng.uniform(0.0, 35.0)
+        friction = rng.uniform(0.5, 1.0)
         force = rng.uniform(0.0, 200.0)
-        force_point = rng.choice([0, 1, 2, 3, 4])
-        df = generate_rollout(slope_angle_deg=slope, force_mag=force, force_point=force_point, seed=i)
-        frames.append(df)
+        body = rng.integers(0, 5)
+        frames.append(generate_rollout(slope, friction, force, body, seed=i))
 
     df = pd.concat(frames, ignore_index=True)
-    out_path = os.path.join(out_dir, "demo_slope_load_data.csv")
+    out_path = "data/demo_slope_load_data.csv"
     df.to_csv(out_path, index=False)
-
-    print(f"Generated {len(df)} timesteps from {n_rollouts} rollouts.")
+    print(f"Generated {len(df)} rows from {df['episode_id'].nunique()} episodes")
     print(f"Saved to {out_path}")
     print(f"Fall rate: {df['fall_label'].mean():.3f}")
 

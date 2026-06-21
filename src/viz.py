@@ -1,6 +1,4 @@
-"""
-Visualize fall-risk predictions for one or more episodes.
-"""
+"""Visualize fall-risk predictions for one episode."""
 
 import argparse
 import numpy as np
@@ -23,14 +21,14 @@ def plot_episode(df, episode_id, save_path=None):
     axes[0].legend()
     axes[0].set_title(f"Episode {episode_id} — Fall Risk")
 
-    axes[1].plot(ep["time"], ep["base_roll"], label="roll")
-    axes[1].plot(ep["time"], ep["base_pitch"], label="pitch")
-    axes[1].set_ylabel("rad")
+    axes[1].plot(ep["time"], ep["base_quat_x"], label="quat x (roll-ish)")
+    axes[1].plot(ep["time"], ep["base_quat_y"], label="quat y (pitch-ish)")
+    axes[1].set_ylabel("quat")
     axes[1].legend()
     axes[1].set_title("Base Orientation")
 
     axes[2].plot(ep["time"], ep["base_vel_x"], label="vel x")
-    axes[2].plot(ep["time"], ep["base_height"], label="height")
+    axes[2].plot(ep["time"], ep["base_pos_z"], label="height")
     axes[2].set_ylabel("m / (m/s)")
     axes[2].legend()
     axes[2].set_title("Base Velocity / Height")

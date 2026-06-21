@@ -1,0 +1,28 @@
+episode_id_col: episode_id
+label_col: fall_label
+
+feature_cols:
+  # terrain
+  - slope_angle_deg
+  - friction
+  # base state
+  - base_pos_x
+  - base_pos_y
+  - base_pos_z
+  - base_quat_w
+  - base_quat_x
+  - base_quat_y
+  - base_quat_z
+  - base_vel_x
+  - base_vel_y
+  - base_vel_z
+  - base_ang_vel_x
+  - base_ang_vel_y
+  - base_ang_vel_z
+  - projected_gravity_x
+  - projected_gravity_y
+  - projected_gravity_z
+  # commands
+  - cmd_vel_x
+  - cmd_vel_y
+  - cmd_yaw_rate
