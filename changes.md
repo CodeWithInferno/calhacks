@@ -1,0 +1,1 @@
+- Remove the time, make 2 center of gravity system with load and roboat, all actuator like all joints

@@ -13,6 +13,12 @@ feature_cols:
   - base_quat_x
   - base_quat_y
   - base_quat_z
+  - robot_com_x
+  - robot_com_y
+  - robot_com_z
+  - system_com_x
+  - system_com_y
+  - system_com_z
   - base_vel_x
   - base_vel_y
   - base_vel_z

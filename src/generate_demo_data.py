@@ -58,6 +58,17 @@ def generate_rollout(
     force_app_y = base_pos_y + rng.normal(0, 0.05)
     force_app_z = base_pos_z + 0.3 + rng.normal(0, 0.05)
 
+    # Approximate CoM: base position shifted slightly.
+    robot_com_x = base_pos_x + rng.normal(0, 0.01, size=max_steps)
+    robot_com_y = base_pos_y + rng.normal(0, 0.01, size=max_steps)
+    robot_com_z = base_pos_z + 0.05 + rng.normal(0, 0.005, size=max_steps)
+
+    # Combined system CoM shifts toward force application point.
+    load_mass_ratio = force_mag / (force_mag + 500.0)
+    system_com_x = (1 - load_mass_ratio) * robot_com_x + load_mass_ratio * force_app_x
+    system_com_y = (1 - load_mass_ratio) * robot_com_y + load_mass_ratio * force_app_y
+    system_com_z = (1 - load_mass_ratio) * robot_com_z + load_mass_ratio * force_app_z
+
     # Stability metric.
     stability = (
         stability_budget
@@ -91,6 +102,12 @@ def generate_rollout(
         "base_quat_x": base_quat_x,
         "base_quat_y": base_quat_y,
         "base_quat_z": base_quat_z,
+        "robot_com_x": robot_com_x,
+        "robot_com_y": robot_com_y,
+        "robot_com_z": robot_com_z,
+        "system_com_x": system_com_x,
+        "system_com_y": system_com_y,
+        "system_com_z": system_com_z,
         "base_vel_x": base_vel_x,
         "base_vel_y": base_vel_y,
         "base_vel_z": base_vel_z,
