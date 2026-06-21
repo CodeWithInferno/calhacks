@@ -169,31 +169,42 @@ def train(cfg):
     with open(os.path.join(output_dir, "schema.yaml"), "w") as f:
         yaml.dump(schema, f)
 
-    # Normalize.
-    feature_means = df[feature_cols].mean()
-    feature_stds = df[feature_cols].std().replace(0, 1.0)
-    df[feature_cols] = (df[feature_cols] - feature_means) / feature_stds
+    # Split episodes first to avoid windows from the same episode leaking across splits.
+    episode_ids = df[episode_id_col].unique()
+    train_eps, test_eps = train_test_split(episode_ids, test_size=0.15, random_state=42)
+    if val_frac > 0:
+        train_eps, val_eps = train_test_split(
+            train_eps,
+            test_size=val_frac / (1 - 0.15),
+            random_state=42,
+        )
+    else:
+        val_eps = test_eps
+
+    train_df = df[df[episode_id_col].isin(train_eps)].copy()
+    val_df = df[df[episode_id_col].isin(val_eps)].copy()
+    test_df = df[df[episode_id_col].isin(test_eps)].copy()
+
+    print(f"Episodes -> train: {len(train_eps)} | val: {len(val_eps)} | test: {len(test_eps)}")
+
+    # Normalize using training statistics only.
+    feature_means = train_df[feature_cols].mean()
+    feature_stds = train_df[feature_cols].std().replace(0, 1.0)
+    train_df[feature_cols] = (train_df[feature_cols] - feature_means) / feature_stds
+    val_df[feature_cols] = (val_df[feature_cols] - feature_means) / feature_stds
+    test_df[feature_cols] = (test_df[feature_cols] - feature_means) / feature_stds
     feature_means.to_csv(os.path.join(output_dir, "feature_means.csv"))
     feature_stds.to_csv(os.path.join(output_dir, "feature_stds.csv"))
 
     print(f"Building windows of size {window_size}...")
-    windows, labels = build_windows(df, feature_cols, episode_id_col, label_col, window_size)
-    print(f"Total windows: {len(labels)}, fall rate: {labels.mean():.3f}")
-
-    # Split: train / val / test by windows (note: episode leakage possible).
-    X_trainval, X_test, y_trainval, y_test = train_test_split(
-        windows, labels, test_size=0.15, random_state=42, stratify=labels
+    X_train, y_train = build_windows(train_df, feature_cols, episode_id_col, label_col, window_size)
+    X_val, y_val = build_windows(val_df, feature_cols, episode_id_col, label_col, window_size)
+    X_test, y_test = build_windows(test_df, feature_cols, episode_id_col, label_col, window_size)
+    print(
+        f"Windows -> train: {len(y_train)} (fall {y_train.mean():.3f}) | "
+        f"val: {len(y_val)} (fall {y_val.mean():.3f}) | "
+        f"test: {len(y_test)} (fall {y_test.mean():.3f})"
     )
-    if val_frac > 0:
-        X_train, X_val, y_train, y_val = train_test_split(
-            X_trainval,
-            y_trainval,
-            test_size=val_frac / (1 - 0.15),
-            random_state=42,
-            stratify=y_trainval,
-        )
-    else:
-        X_train, X_val, y_train, y_val = X_trainval, X_test, y_trainval, y_test
 
     input_dim = len(feature_cols)
 

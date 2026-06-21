@@ -1,0 +1,17 @@
+data_path: /home/hemad/calhacks/data/g1_mujoco_data.csv
+window_size: 10
+
+model_type: gru
+hidden_dim: 320
+num_layers: 2
+dropout: 0.2
+
+batch_size: 256
+epochs: 100
+learning_rate: 0.001
+weight_decay: 0.0001
+
+output_dir: models/mujoco_large
+patience: 15
+val_frac: 0.1
+save_every: 5
