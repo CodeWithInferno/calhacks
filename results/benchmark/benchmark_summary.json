@@ -1,0 +1,162 @@
+{
+  "overall": {
+    "n_runs": 500,
+    "fall_rate": 1.0,
+    "median_duration_s": 0.9,
+    "median_distance_m": 0.5918202102184296
+  },
+  "by_suite_controller": [
+    {
+      "suite": "bradford_street",
+      "controller": "heuristic",
+      "n_runs": 50,
+      "fall_rate": 1.0,
+      "median_duration_s": 0.93,
+      "median_distance_m": 0.5859888195991516,
+      "mean_max_risk": 0.998173987865448
+    },
+    {
+      "suite": "bradford_street",
+      "controller": "safe",
+      "n_runs": 50,
+      "fall_rate": 1.0,
+      "median_duration_s": 0.9099999999999999,
+      "median_distance_m": 0.5712884962558746,
+      "mean_max_risk": 0.9821030804514885
+    },
+    {
+      "suite": "easy_flat",
+      "controller": "heuristic",
+      "n_runs": 50,
+      "fall_rate": 1.0,
+      "median_duration_s": 0.8,
+      "median_distance_m": 0.6055780053138733,
+      "mean_max_risk": 0.9976282179355621
+    },
+    {
+      "suite": "easy_flat",
+      "controller": "safe",
+      "n_runs": 50,
+      "fall_rate": 1.0,
+      "median_duration_s": 0.8500000000000001,
+      "median_distance_m": 0.6128329336643219,
+      "mean_max_risk": 0.9947587966918945
+    },
+    {
+      "suite": "filbert_street",
+      "controller": "heuristic",
+      "n_runs": 50,
+      "fall_rate": 1.0,
+      "median_duration_s": 0.95,
+      "median_distance_m": 0.5906145572662354,
+      "mean_max_risk": 0.9737178152799606
+    },
+    {
+      "suite": "filbert_street",
+      "controller": "safe",
+      "n_runs": 50,
+      "fall_rate": 1.0,
+      "median_duration_s": 0.99,
+      "median_distance_m": 0.5874393284320831,
+      "mean_max_risk": 0.9808632060885429
+    },
+    {
+      "suite": "hard_slope",
+      "controller": "heuristic",
+      "n_runs": 50,
+      "fall_rate": 1.0,
+      "median_duration_s": 0.91,
+      "median_distance_m": 0.5985891819000244,
+      "mean_max_risk": 0.9778110563755036
+    },
+    {
+      "suite": "hard_slope",
+      "controller": "safe",
+      "n_runs": 50,
+      "fall_rate": 1.0,
+      "median_duration_s": 0.9,
+      "median_distance_m": 0.5991210043430328,
+      "mean_max_risk": 0.978172727227211
+    },
+    {
+      "suite": "medium_slope",
+      "controller": "heuristic",
+      "n_runs": 50,
+      "fall_rate": 1.0,
+      "median_duration_s": 0.87,
+      "median_distance_m": 0.59217569231987,
+      "mean_max_risk": 0.9779811680316925
+    },
+    {
+      "suite": "medium_slope",
+      "controller": "safe",
+      "n_runs": 50,
+      "fall_rate": 1.0,
+      "median_duration_s": 0.86,
+      "median_distance_m": 0.5796009600162506,
+      "mean_max_risk": 0.9780959451198578
+    }
+  ],
+  "controller_comparison": {
+    "easy_flat": {
+      "heuristic": {
+        "fall_rate": 1.0,
+        "median_duration_s": 0.8,
+        "median_distance_m": 0.6055780053138733
+      },
+      "safe": {
+        "fall_rate": 1.0,
+        "median_duration_s": 0.8500000000000001,
+        "median_distance_m": 0.6128329336643219
+      }
+    },
+    "medium_slope": {
+      "heuristic": {
+        "fall_rate": 1.0,
+        "median_duration_s": 0.87,
+        "median_distance_m": 0.59217569231987
+      },
+      "safe": {
+        "fall_rate": 1.0,
+        "median_duration_s": 0.86,
+        "median_distance_m": 0.5796009600162506
+      }
+    },
+    "hard_slope": {
+      "heuristic": {
+        "fall_rate": 1.0,
+        "median_duration_s": 0.91,
+        "median_distance_m": 0.5985891819000244
+      },
+      "safe": {
+        "fall_rate": 1.0,
+        "median_duration_s": 0.9,
+        "median_distance_m": 0.5991210043430328
+      }
+    },
+    "filbert_street": {
+      "heuristic": {
+        "fall_rate": 1.0,
+        "median_duration_s": 0.95,
+        "median_distance_m": 0.5906145572662354
+      },
+      "safe": {
+        "fall_rate": 1.0,
+        "median_duration_s": 0.99,
+        "median_distance_m": 0.5874393284320831
+      }
+    },
+    "bradford_street": {
+      "heuristic": {
+        "fall_rate": 1.0,
+        "median_duration_s": 0.93,
+        "median_distance_m": 0.5859888195991516
+      },
+      "safe": {
+        "fall_rate": 1.0,
+        "median_duration_s": 0.9099999999999999,
+        "median_distance_m": 0.5712884962558746
+      }
+    }
+  }
+}

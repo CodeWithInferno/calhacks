@@ -66,7 +66,38 @@ PYTHONPATH=/home/hemad/calhacks python src/mujoco_collector/compare_controllers.
 PYTHONPATH=/home/hemad/calhacks python src/mujoco_collector/compare_controllers.py --runs 20 --mild
 ```
 
+## Production benchmark
+
+Ran `frontend/backend/benchmark.py` on the VM: **500 episodes** across 5 suites (Easy, Medium, Hard, Filbert St 31.5%, Bradford St 41%) and 2 controllers (heuristic, safe-MPC). Results:
+
+| Suite | Controller | Fall rate | Median survival | Mean max risk |
+|-------|------------|-----------|-----------------|---------------|
+| easy_flat | heuristic | 100% | 0.80 s | 0.998 |
+| easy_flat | safe | 100% | 0.85 s | 0.995 |
+| medium_slope | heuristic | 100% | 0.87 s | 0.978 |
+| medium_slope | safe | 100% | 0.86 s | 0.978 |
+| hard_slope | heuristic | 100% | 0.91 s | 0.978 |
+| hard_slope | safe | 100% | 0.90 s | 0.978 |
+| filbert_street | heuristic | 100% | 0.95 s | 0.974 |
+| filbert_street | safe | 100% | 0.99 s | 0.981 |
+| bradford_street | heuristic | 100% | 0.93 s | 0.998 |
+| bradford_street | safe | 100% | 0.91 s | 0.982 |
+
+**Honest interpretation:** both controllers fall on essentially every episode because the heuristic controller was built to generate diverse fall data, not to be a stable locomotion controller. The safe-MPC layer only slightly extends survival and does not fundamentally fix this. The world model itself correctly predicts high risk (mean max risk ~0.98–0.99), so the predictor is doing its job — but there is no reliable controller behind it yet.
+
+**To get a real locomotion benchmark with non-zero success rates**, we need a controller that can actually balance and walk in this MJCF. The current system is a fall-risk predictor, not a fall-prevention robot.
+
+Run the benchmark:
+
+```bash
+cd frontend/backend
+python benchmark.py --output /home/hemad/calhacks/results/benchmark
+```
+
+Results are committed under `results/benchmark/`.
+
 ## Remaining work
 
-1. **Demo / integration:** wire the chosen checkpoint into the final demo and generate live risk curves/evaluation visuals. `src/infer.py` can be pointed at `configs/mujoco_valloss.yaml` to score windows.
-2. **Policy:** the Unitree ONNX velocity policy is still unstable in MuJoCo; if the demo needs learned control, retrain a policy in this MJCF or fine-tune the ONNX policy.
+1. **Controller:** build or train a stable walking controller in this MuJoCo MJCF. The heuristic + safe-MPC is not sufficient for real locomotion.
+2. **Demo / integration:** wire the chosen checkpoint into the final demo and generate live risk curves/evaluation visuals.
+3. **Policy:** the Unitree ONNX velocity policy is still unstable in MuJoCo; retrain it in this MJCF or use IsaacLab directly if a learned controller is needed.
