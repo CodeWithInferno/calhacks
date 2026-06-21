@@ -46,6 +46,26 @@ Independent test metrics:
 - **Best by val loss:** `models/mujoco_valloss/best_model.pt` — AUC 0.9971, F1 0.9798.
 - **Last checkpoint:** `models/mujoco_valloss/last_checkpoint.pt` — usually comparable or slightly better; verify with the script above.
 
+## Controller comparison
+
+Ran 20 matched episodes each for our heuristic controller vs the Unitree ONNX velocity policy in this MuJoCo MJCF. Both were given identical episode conditions (slope, friction, push force, velocity command). Results:
+
+| Condition | Controller | Fall rate | Median survival | Median distance (m) |
+|-----------|------------|-----------|-----------------|---------------------|
+| Aggressive (0–30° slope, pushes up to 80 N) | Heuristic | 20/20 | 0.79 s | 0.055 |
+| Aggressive (0–30° slope, pushes up to 80 N) | Unitree ONNX | 20/20 | 0.44 s | 0.007 |
+| Mild (0–5° slope, no pushes, slow forward cmd) | Heuristic | 20/20 | 1.21 s | 0.051 |
+| Mild (0–5° slope, no pushes, slow forward cmd) | Unitree ONNX | 20/20 | 0.50 s | -0.129 |
+
+The Unitree ONNX policy collapses almost immediately in this MJCF because it was trained on IsaacLab's USD model with different dynamics/contacts and expects observations normalized to that training distribution. The heuristic controller is therefore used for data collection and is the practical baseline for this demo.
+
+Run the comparison yourself:
+
+```bash
+PYTHONPATH=/home/hemad/calhacks python src/mujoco_collector/compare_controllers.py --runs 20
+PYTHONPATH=/home/hemad/calhacks python src/mujoco_collector/compare_controllers.py --runs 20 --mild
+```
+
 ## Remaining work
 
 1. **Demo / integration:** wire the chosen checkpoint into the final demo and generate live risk curves/evaluation visuals. `src/infer.py` can be pointed at `configs/mujoco_valloss.yaml` to score windows.
