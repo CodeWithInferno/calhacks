@@ -170,15 +170,23 @@ def run_rollout(params: dict) -> dict:
     seed = int(params.get("seed", 42))
 
     if mujoco_rollout.MUJOCO_AVAILABLE:
-        try:
-            frames, df, _ = mujoco_rollout.generate_rollout(params, controller_type="safe")
-            terrain, _, _ = _build_terrain_profile(params)
-            result = {"params": params, "terrain": terrain, "frames": frames, "source": "mujoco_safe"}
-        except Exception as exc:
-            # Fall back to stub on any MuJoCo error so the frontend never breaks.
+        # Try the learned PPO policy first, then safe-MPC, then stub.
+        controllers = [("ppo", "mujoco_ppo"), ("safe", "mujoco_safe")]
+        result = None
+        df = None
+        last_error = None
+        for controller_type, source_name in controllers:
+            try:
+                frames, df, _ = mujoco_rollout.generate_rollout(params, controller_type=controller_type)
+                terrain, _, _ = _build_terrain_profile(params)
+                result = {"params": params, "terrain": terrain, "frames": frames, "source": source_name}
+                break
+            except Exception as exc:
+                last_error = exc
+        if result is None:
             result = generate_stub_rollout(params)
             df = None
-            result["mujoco_error"] = str(exc)
+            result["mujoco_error"] = str(last_error)
     else:
         result = generate_stub_rollout(params)
         df = None
