@@ -114,15 +114,15 @@ tmux attach -t ppo_v4
 tail -f /tmp/ppo_v4.log
 ```
 
-Recent flat-ground performance (seed 42, speed 0.5 m/s):
+Final flat-ground performance (seed 42, speed 0.5 m/s) after 5M steps:
 
-| Checkpoint | Duration | Distance | Notes |
-|------------|----------|----------|-------|
-| 500k       | 0.92 s   | 0.64 m   | Forward motion, falls |
-| 1.0M       | 0.88 s   | 0.69 m   | Slightly better |
-| 1.5M       | 1.36 s   | 1.50 m   | Clear forward walking |
+| Metric | Value |
+|--------|-------|
+| Duration | **2.54 s** |
+| Forward distance | **3.34 m** |
+| Improvement over heuristic | **5.6×** |
 
-The policy is expected to improve further up to the 5M final checkpoint.
+On hills the policy degrades gracefully (e.g. 2.2 m on 5°, 1.6 m on 10°), which matches expectations since it was trained on flat ground.
 
 ---
 
@@ -169,7 +169,7 @@ Outputs CSV + JSON summary in `results/benchmark/`.
 ## Notes
 
 - `data/*.csv` and most `models/` directories are gitignored because they are large (100 MB–1 GB). The small backend model copy in `frontend/backend/model/` is included.
-- A 2.75M-step PPO v4 checkpoint is bundled at `frontend/backend/model/g1_ppo_walk_v4/g1_ppo_2750000_steps.zip` so the backend works out of the box. The final 5M checkpoint is still training on the VM and will be copied in when it finishes.
+- The final PPO v4 checkpoint (`g1_ppo_final.zip`) is bundled at `frontend/backend/model/g1_ppo_walk_v4/` so the backend works out of the box.
 - Unitree’s official ONNX velocity policy was unstable in this MJCF (trained on IsaacLab USD), so we retrained PPO directly in MuJoCo.
 
 ---
