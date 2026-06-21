@@ -85,7 +85,7 @@ SUITES = [
     ),
 ]
 
-CONTROLLERS = ["heuristic", "safe"]
+CONTROLLERS = ["heuristic", "safe", "ppo"]
 
 
 @dataclass

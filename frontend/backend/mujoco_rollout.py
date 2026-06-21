@@ -125,14 +125,20 @@ def run_episode_controller(
     elif controller_type == "reference":
         from src.mujoco_collector.reference_controller import ReferenceWalkController
         controller = ReferenceWalkController(model, cfg, rng)
+    elif controller_type == "ppo":
+        from ppo_controller import PPOController
+        controller = PPOController(model, cfg, rng)
     else:
         raise ValueError(f"Unknown controller: {controller_type}")
 
     data.qpos[:] = 0.0
     data.qvel[:] = 0.0
-    data.qpos[0:3] = [0.0, 0.0, 0.55]
+    data.qpos[0:3] = [0.0, 0.0, 0.70]
     data.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]
-    data.qpos[qpos_adr] = controller.ref
+    init_motor = getattr(controller, "ref", DEFAULT_QPOS_MOTOR.copy())
+    init_motor[[3, 9]] += 0.2  # slightly bent knees
+    init_motor[[4, 10]] -= 0.1  # ankles
+    data.qpos[qpos_adr] = init_motor
     mujoco.mj_forward(model, data)
 
     frames = []
