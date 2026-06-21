@@ -157,7 +157,7 @@ Outputs CSV + JSON summary in `results/benchmark/`.
 ## Notes
 
 - `data/*.csv` and most `models/` directories are gitignored because they are large (100 MB–1 GB). The small backend model copy in `frontend/backend/model/` is included.
-- The PPO policy currently being trained is saved on the VM at `models/g1_ppo_walk_v4/` and will be copied into the repo after the final checkpoint is ready.
+- A 2.75M-step PPO v4 checkpoint is bundled at `frontend/backend/model/g1_ppo_walk_v4/g1_ppo_2750000_steps.zip` so the backend works out of the box. The final 5M checkpoint is still training on the VM and will be copied in when it finishes.
 - Unitree’s official ONNX velocity policy was unstable in this MJCF (trained on IsaacLab USD), so we retrained PPO directly in MuJoCo.
 
 ---
