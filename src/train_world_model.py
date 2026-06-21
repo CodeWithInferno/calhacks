@@ -189,7 +189,11 @@ def train(cfg):
 
     # Normalize using training statistics only.
     feature_means = train_df[feature_cols].mean()
-    feature_stds = train_df[feature_cols].std().replace(0, 1.0)
+    feature_stds = train_df[feature_cols].std()
+    # Near-zero stds (effectively constant features) would blow up normalization and
+    # make saved stats irreproducible due to floating-point round-trip. Treat them as 1.0.
+    std_floor = 1e-12
+    feature_stds = feature_stds.where(feature_stds.abs() >= std_floor, 1.0)
     train_df[feature_cols] = (train_df[feature_cols] - feature_means) / feature_stds
     val_df[feature_cols] = (val_df[feature_cols] - feature_means) / feature_stds
     test_df[feature_cols] = (test_df[feature_cols] - feature_means) / feature_stds

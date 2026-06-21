@@ -1,4 +1,4 @@
-data_path: /home/hemad/calhacks/data/g1_mujoco_data.csv
+data_path: data/g1_mujoco_data.csv
 window_size: 10
 
 model_type: gru
