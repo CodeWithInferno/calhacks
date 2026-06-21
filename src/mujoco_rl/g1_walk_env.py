@@ -41,7 +41,10 @@ class G1WalkEnv(gym.Env):
         super().__init__()
         self.slope_deg = slope_deg
         self.friction = friction
-        self.cmd_vel = cmd_vel if cmd_vel is not None else np.array([0.5, 0.0], dtype=np.float32)
+        self.cmd_vel_range = (
+            cmd_vel if cmd_vel is not None else np.array([0.5, 0.0], dtype=np.float32)
+        )
+        self.cmd_vel = self.cmd_vel_range.copy()
         self.cmd_yaw_rate = 0.0
         self.max_steps = max_steps
         self.render_mode = render_mode
@@ -60,6 +63,7 @@ class G1WalkEnv(gym.Env):
 
         self.n_substeps = int(round(STEP_DT / self.model.opt.timestep))
         self.last_action = np.zeros(29, dtype=np.float32)
+        self.last_base_pos = np.zeros(3, dtype=np.float32)
         self.steps = 0
 
     def _new_data(self):
@@ -74,13 +78,24 @@ class G1WalkEnv(gym.Env):
         self.data = self._new_data()
         self.data.qpos[:] = 0.0
         self.data.qvel[:] = 0.0
-        self.data.qpos[0:3] = [0.0, 0.0, 0.70]
+        # Randomize command velocity per episode for robustness.
+        vx = float(self.np_random.uniform(0.2, 1.0))
+        vy = float(self.np_random.uniform(-0.15, 0.15))
+        self.cmd_vel = np.array([vx, vy], dtype=np.float32)
+        self.cmd_yaw_rate = float(self.np_random.uniform(-0.1, 0.1))
+
+        self.data.qpos[0:3] = [
+            0.0,
+            0.0,
+            float(self.np_random.uniform(0.68, 0.72)),
+        ]
         self.data.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]
         # Slightly bent knees.
         self.data.qpos[self.qpos_adr] = DEFAULT_QPOS_MOTOR.copy()
-        self.data.qpos[self.qpos_adr[[3, 9]]] += 0.2  # knees
-        self.data.qpos[self.qpos_adr[[4, 10]]] -= 0.1  # ankles
+        self.data.qpos[self.qpos_adr[[3, 9]]] += float(self.np_random.uniform(0.15, 0.25))
+        self.data.qpos[self.qpos_adr[[4, 10]]] -= float(self.np_random.uniform(0.05, 0.15))
         self.last_action = np.zeros(29, dtype=np.float32)
+        self.last_base_pos = self.data.body(self.pelvis_id).xpos.copy()
         self.steps = 0
         mujoco.mj_forward(self.model, self.data)
 
@@ -113,7 +128,7 @@ class G1WalkEnv(gym.Env):
         ]).astype(np.float32)
         return obs
 
-    def _compute_reward(self, action: np.ndarray):
+    def _compute_reward(self, action: np.ndarray, terminated: bool, truncated: bool):
         base_pos = self.data.body(self.pelvis_id).xpos.copy()
         cvel = self.data.body(self.pelvis_id).cvel.copy()
         base_quat = self.data.body(self.pelvis_id).xquat.copy()
@@ -121,13 +136,24 @@ class G1WalkEnv(gym.Env):
         pitch = float(np.arcsin(np.clip(-rmat[2, 0], -1.0, 1.0)))
         roll = float(np.arctan2(rmat[2, 1], rmat[2, 2]))
 
+        # Forward world displacement is the clearest walking signal.
+        dx = (base_pos[0] - self.last_base_pos[0]) / STEP_DT
+        self.last_base_pos = base_pos.copy()
+        forward = 1.5 * dx
+        track = -0.3 * abs(dx - self.cmd_vel[0])
+
         alive = 2.0
-        track = -2.0 * abs(cvel[3] - self.cmd_vel[0]) - 2.0 * abs(cvel[4] - self.cmd_vel[1]) - 1.0 * abs(cvel[2] - self.cmd_yaw_rate)
         upright = -1.0 * (pitch ** 2 + roll ** 2)
-        height = -2.0 * (base_pos[2] - 0.70) ** 2
+        height = -1.0 * (base_pos[2] - 0.70) ** 2
         energy = -0.0001 * np.sum(self.data.ctrl ** 2)
         action_rate = -0.05 * np.sum((action - self.last_action) ** 2)
-        return alive + track + upright + height + energy + action_rate
+
+        reward = alive + forward + track + upright + height + energy + action_rate
+        if terminated:
+            reward -= 10.0
+        if truncated:
+            reward += 10.0
+        return reward
 
     def _terminated(self):
         base_pos = self.data.body(self.pelvis_id).xpos.copy()
@@ -146,9 +172,9 @@ class G1WalkEnv(gym.Env):
         for _ in range(self.n_substeps):
             mujoco.mj_step(self.model, self.data)
 
-        reward = self._compute_reward(action)
         terminated = self._terminated()
         truncated = self.steps >= self.max_steps
+        reward = self._compute_reward(action, terminated, truncated)
         self.steps += 1
 
         obs = self._get_obs()
