@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Unitree G1 — Terrain Rollout Viewer</title>
+    <meta
+      name="description"
+      content="Interactive 3D viewer of a Unitree G1 humanoid walking across procedurally generated terrain. Tune incline, payload, friction, slopes and speed and watch it re-walk the scenario."
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene"></canvas>
+
+      <!-- brand / status -->
+      <header id="brand">
+        <div class="brand-row">
+          <h1>Unitree&nbsp;G1</h1>
+          <button id="info-btn" title="About this demo" aria-label="About">i</button>
+        </div>
+        <div class="brand-sub">Terrain Rollout Viewer</div>
+        <div id="status"></div>
+      </header>
+
+      <!-- five training factors -->
+      <div id="factors">
+        <div class="factors-title">Simulation factors</div>
+
+        <label class="factor">
+          <span class="f-name">Incline</span>
+          <input id="f-incline" type="range" min="0" max="35" step="1" value="8" />
+          <span class="f-val mono" id="v-incline">8°</span>
+        </label>
+        <label class="factor">
+          <span class="f-name">Payload</span>
+          <input id="f-payload" type="range" min="0" max="30" step="0.5" value="0" />
+          <span class="f-val mono" id="v-payload">0 kg</span>
+        </label>
+        <label class="factor">
+          <span class="f-name">Friction</span>
+          <input id="f-friction" type="range" min="0.05" max="1.5" step="0.05" value="0.6" />
+          <span class="f-val mono" id="v-friction">0.60</span>
+        </label>
+        <label class="factor">
+          <span class="f-name">Slopes</span>
+          <input id="f-slopes" type="range" min="0" max="8" step="1" value="2" />
+          <span class="f-val mono" id="v-slopes">2</span>
+        </label>
+        <label class="factor">
+          <span class="f-name">Speed</span>
+          <input id="f-speed" type="range" min="0" max="3" step="0.1" value="1.0" />
+          <span class="f-val mono" id="v-speed">1.0 m/s</span>
+        </label>
+
+        <button id="regen">Re-run rollout</button>
+        <div class="src" id="src-note"></div>
+      </div>
+
+      <!-- playback -->
+      <div id="controls">
+        <button id="play" title="Play / Pause (space)">▶</button>
+        <input id="scrub" type="range" min="0" max="1000" value="0" step="1" />
+        <span id="time" class="mono">0.00 / 0.00s</span>
+        <label class="speed">
+          playback
+          <select id="speed">
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+        </label>
+      </div>
+
+      <footer id="footer">
+        <span>Unitree G1 · three.js · urdf-loader</span>
+        <span class="dot">•</span>
+        <a id="repo-link" href="https://github.com/CodeWithInferno/calhacks" target="_blank" rel="noopener">source</a>
+      </footer>
+
+      <!-- intro / about overlay -->
+      <div id="overlay" class="hidden">
+        <div class="card">
+          <h2>Unitree G1 — Terrain Rollout Viewer</h2>
+          <p>
+            A <strong>Unitree G1</strong> humanoid (the robot from
+            <code>unitree_rl_gym</code>, trained in Isaac Lab) walking across
+            procedurally generated terrain. The robot is <em>replay</em>, not
+            re-simulated — each rollout is computed from five factors and played
+            back with the legs planted on the surface.
+          </p>
+          <ul class="how">
+            <li><b>Drag</b> to orbit · <b>scroll</b> to zoom</li>
+            <li>Move the <b>five sliders</b> (incline, payload, friction, slopes, speed) to re-walk a new scenario</li>
+            <li>Give it a <b>payload</b> and it carries a carton; raise the <b>incline</b> and it climbs</li>
+            <li><b>Space</b> plays/pauses; scrub and change playback speed below</li>
+          </ul>
+          <p class="fine">
+            Runs entirely in your browser. The same factors drive a real Isaac Sim
+            policy when the inference backend is connected.
+          </p>
+          <button id="overlay-close">Enter</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
