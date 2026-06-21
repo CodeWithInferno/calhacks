@@ -51,6 +51,16 @@ def generate_rollout(
     cmd_vel_y = np.zeros(max_steps)
     cmd_yaw_rate = np.zeros(max_steps)
 
+
+    # Joint state (29 DoF) — simplified sinusoids for demo.
+    joint_state = {}
+    for i in range(29):
+        phase = 2 * np.pi * (0.5 + 0.1 * (i % 5)) * timestep * dt + i * 0.2
+        joint_state[f'joint_pos_{i}'] = 0.1 * np.sin(phase) + rng.normal(0, 0.02, size=max_steps)
+        joint_state[f'joint_vel_{i}'] = 0.1 * np.cos(phase) + rng.normal(0, 0.05, size=max_steps)
+        joint_state[f'joint_default_{i}'] = np.full(max_steps, 0.0)
+        joint_state[f'last_action_{i}'] = 0.25 * np.sin(phase) + rng.normal(0, 0.02, size=max_steps)
+
     force_x = -force_mag * 0.7
     force_y = force_mag * 0.1
     force_z = -force_mag * 0.7
@@ -109,6 +119,7 @@ def generate_rollout(
         "system_com_y": system_com_y,
         "system_com_z": system_com_z,
         "base_vel_x": base_vel_x,
+        **joint_state,
         "base_vel_y": base_vel_y,
         "base_vel_z": base_vel_z,
         "base_ang_vel_x": base_ang_vel_x,

@@ -6,7 +6,7 @@ One row per simulation timestep.
 
 - `episode_id` — rollout number
 - `time` — simulation time in seconds
-
+- `timestep` — integer step index within episode
 
 No separate t-1/t/t+1 columns needed. The training script builds sliding windows from rows ordered by `timestep`.
 
@@ -24,7 +24,6 @@ No separate t-1/t/t+1 columns needed. The training script builds sliding windows
 - `base_vel_x`, `base_vel_y`, `base_vel_z` — linear velocity
 - `base_ang_vel_x`, `base_ang_vel_y`, `base_ang_vel_z` — angular velocity
 - `projected_gravity_x`, `projected_gravity_y`, `projected_gravity_z` — gravity in base frame
-- Center of gravity
 
 ## Joint state (29 DoF)
 
