@@ -1,4 +1,4 @@
-"""Load the trained fall-risk GRU and score a rollout DataFrame."""
+"""Load the trained fall-risk GRU and score state windows / rollouts."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -96,7 +96,6 @@ def score_dataframe(df: pd.DataFrame) -> pd.Series:
         tensor = torch.tensor(X, dtype=torch.float32, device=_DEVICE)
         scores = torch.sigmoid(_MODEL(tensor)).cpu().numpy()
 
-    # Align scores to the last timestep of each window.
     out = pd.Series(index=df.index, dtype=float)
     idx = 0
     for _, ep_df in df.groupby("episode_id", sort=False):
@@ -105,3 +104,15 @@ def score_dataframe(df: pd.DataFrame) -> pd.Series:
             out.iloc[_WINDOW:n] = scores[idx : idx + n - _WINDOW]
             idx += n - _WINDOW
     return out
+
+
+def score_window(features: np.ndarray) -> float:
+    """Score a single normalized feature window of shape (window_size, n_features)."""
+    if features.shape[0] < _WINDOW:
+        return 0.0
+    x = features[-_WINDOW:].astype(np.float32)
+    x = (x - _MEANS.values) / _STDS.values
+    with torch.no_grad():
+        tensor = torch.tensor(x.reshape(1, _WINDOW, -1), dtype=torch.float32, device=_DEVICE)
+        score = torch.sigmoid(_MODEL(tensor)).item()
+    return float(score)

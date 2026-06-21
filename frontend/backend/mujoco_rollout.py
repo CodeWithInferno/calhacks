@@ -1,4 +1,4 @@
-"""Generate a real MuJoCo rollout using the heuristic controller."""
+"""Generate a real MuJoCo rollout using the heuristic or safe MPC controller."""
 from __future__ import annotations
 
 import sys
@@ -25,52 +25,82 @@ _URDF_JOINTS = [
 ]
 
 try:
+    import mujoco
     from scipy.spatial.transform import Rotation as R
     from src.mujoco_collector.collector import (
         STEP_DT,
+        ACTION_SCALE,
+        DEFAULT_JOINT_POS_POLICY,
+        DEFAULT_QPOS_MOTOR,
         EpisodeConfig,
         HeuristicController,
         JOINT_NAMES,
         build_model,
         rotate_vec_by_quat_inv,
     )
+    from risk_model import _FEATURE_COLS
 
     _URDF_TO_MOTOR = {name: i for i, name in enumerate(JOINT_NAMES) if name in _URDF_JOINTS}
     MUJOCO_AVAILABLE = True
+    MUJOCO_ERROR = ""
 except Exception as exc:
     _URDF_TO_MOTOR = {}
     MUJOCO_AVAILABLE = False
     MUJOCO_ERROR = str(exc)
 
 
-def generate_rollout(params: dict):
-    """Run one MuJoCo episode with the heuristic controller.
+def _state_to_features(
+    data: "mujoco.MjData",
+    model: "mujoco.MjModel",
+    cfg: EpisodeConfig,
+    pelvis_id: int,
+    force_body_id: int,
+    joint_ids: np.ndarray,
+    qpos_adr: np.ndarray,
+    qvel_adr: np.ndarray,
+    action_policy: np.ndarray,
+) -> np.ndarray:
+    base_pos = data.body(pelvis_id).xpos.copy()
+    base_quat = data.body(pelvis_id).xquat.copy()
+    cvel = data.body(pelvis_id).cvel.copy()
+    projected_gravity = rotate_vec_by_quat_inv(base_quat, np.array([0.0, 0.0, -1.0]))
+    joint_pos_motor = data.qpos[qpos_adr].copy()
+    joint_vel_motor = data.qvel[qvel_adr].copy()
+    force_app = data.body(force_body_id).xpos.copy()
 
-    Returns (frames, df) where frames is the viewer schema and df is the
-    DataFrame needed by risk_model.score_dataframe().
-    """
+    values = [
+        cfg.slope_deg, cfg.friction,
+        float(base_pos[0]), float(base_pos[1]), float(base_pos[2]),
+        float(base_quat[0]), float(base_quat[1]), float(base_quat[2]), float(base_quat[3]),
+        float(base_pos[0]), float(base_pos[1]), float(base_pos[2]),
+        float(base_pos[0]), float(base_pos[1]), float(base_pos[2]),
+        float(cvel[3]), float(cvel[4]), float(cvel[5]),
+        float(cvel[0]), float(cvel[1]), float(cvel[2]),
+        float(projected_gravity[0]), float(projected_gravity[1]), float(projected_gravity[2]),
+        float(cfg.cmd_vel[0]), float(cfg.cmd_vel[1]), float(cfg.cmd_yaw_rate),
+    ]
+    for i in range(len(JOINT_NAMES)):
+        values.extend([
+            float(joint_pos_motor[i]),
+            float(joint_vel_motor[i]),
+            float(DEFAULT_QPOS_MOTOR[i]),
+            float(action_policy[i]),
+        ])
+    values.extend([
+        float(np.linalg.norm(cfg.force)),
+        float(cfg.force[0]), float(cfg.force[1]), float(cfg.force[2]),
+        float(force_app[0]), float(force_app[1]), float(force_app[2]),
+    ])
+    return np.array(values, dtype=np.float32)
+
+
+def run_episode_controller(
+    cfg: EpisodeConfig,
+    controller_type: str = "safe",
+) -> tuple[list[dict], pd.DataFrame]:
+    """Run one MuJoCo episode and return frontend frames + a feature DataFrame."""
     if not MUJOCO_AVAILABLE:
         raise RuntimeError(f"MuJoCo collector not available: {MUJOCO_ERROR}")
-
-    import mujoco
-
-    seed = int(params.get("seed", 42))
-    max_steps = int(round(params.get("seconds", 8.0) / STEP_DT))
-    slope_deg = float(params.get("incline_deg", 0.0))
-    friction = float(params.get("friction", 1.0))
-    speed = float(params.get("speed_mps", 1.0))
-
-    cfg = EpisodeConfig(
-        episode_id=0,
-        seed=seed,
-        max_steps=max_steps,
-        slope_deg=slope_deg,
-        friction=friction,
-        cmd_vel=np.array([speed, 0.0], dtype=np.float32),
-        cmd_yaw_rate=0.0,
-        force=np.zeros(3, dtype=np.float32),
-        force_body="pelvis",
-    )
 
     slope_rad = np.deg2rad(cfg.slope_deg)
     model = build_model(slope_rad, cfg.friction)
@@ -79,14 +109,21 @@ def generate_rollout(params: dict):
     n_substeps = int(round(STEP_DT / model.opt.timestep))
 
     pelvis_id = model.body("pelvis").id
-    force_body_id = pelvis_id
+    torso_id = model.body("torso_link").id
+    force_body_id = pelvis_id if cfg.force_body == "pelvis" else torso_id
 
     joint_ids = np.array([model.joint(n).id for n in JOINT_NAMES], dtype=np.int32)
     qpos_adr = np.array([model.jnt_qposadr[jid] for jid in joint_ids], dtype=np.int32)
     qvel_adr = np.array([model.jnt_dofadr[jid] for jid in joint_ids], dtype=np.int32)
 
     rng = np.random.default_rng(cfg.seed + 1000)
-    controller = HeuristicController(model, cfg, rng)
+    if controller_type == "heuristic":
+        controller = HeuristicController(model, cfg, rng)
+    elif controller_type == "safe":
+        from safe_controller import SafeController
+        controller = SafeController(model, cfg, rng, enable_mpc=True)
+    else:
+        raise ValueError(f"Unknown controller: {controller_type}")
 
     data.qpos[:] = 0.0
     data.qvel[:] = 0.0
@@ -106,62 +143,15 @@ def generate_rollout(params: dict):
 
         base_pos = data.body(pelvis_id).xpos.copy()
         base_quat = data.body(pelvis_id).xquat.copy()
-        cvel = data.body(pelvis_id).cvel.copy()
-        projected_gravity = rotate_vec_by_quat_inv(base_quat, np.array([0.0, 0.0, -1.0]))
-        joint_pos_motor = data.qpos[qpos_adr].copy()
-        joint_vel_motor = data.qvel[qvel_adr].copy()
 
         time = (t + 1) * STEP_DT
-        row = {
-            "episode_id": 0,
-            "timestep": t,
-            "time": time,
-            "slope_angle_deg": cfg.slope_deg,
-            "friction": cfg.friction,
-            "base_pos_x": float(base_pos[0]),
-            "base_pos_y": float(base_pos[1]),
-            "base_pos_z": float(base_pos[2]),
-            "base_quat_w": float(base_quat[0]),
-            "base_quat_x": float(base_quat[1]),
-            "base_quat_y": float(base_quat[2]),
-            "base_quat_z": float(base_quat[3]),
-            "robot_com_x": float(base_pos[0]),
-            "robot_com_y": float(base_pos[1]),
-            "robot_com_z": float(base_pos[2]),
-            "system_com_x": float(base_pos[0]),
-            "system_com_y": float(base_pos[1]),
-            "system_com_z": float(base_pos[2]),
-            "base_vel_x": float(cvel[3]),
-            "base_vel_y": float(cvel[4]),
-            "base_vel_z": float(cvel[5]),
-            "base_ang_vel_x": float(cvel[0]),
-            "base_ang_vel_y": float(cvel[1]),
-            "base_ang_vel_z": float(cvel[2]),
-            "projected_gravity_x": float(projected_gravity[0]),
-            "projected_gravity_y": float(projected_gravity[1]),
-            "projected_gravity_z": float(projected_gravity[2]),
-            "cmd_vel_x": float(cfg.cmd_vel[0]),
-            "cmd_vel_y": float(cfg.cmd_vel[1]),
-            "cmd_yaw_rate": float(cfg.cmd_yaw_rate),
-            **{f"joint_pos_{i}": float(joint_pos_motor[i]) for i in range(len(JOINT_NAMES))},
-            **{f"joint_vel_{i}": float(joint_vel_motor[i]) for i in range(len(JOINT_NAMES))},
-            **{f"joint_default_{i}": float(controller.ref[i]) for i in range(len(JOINT_NAMES))},
-            **{f"last_action_{i}": float(action_policy[i]) for i in range(len(JOINT_NAMES))},
-            "force_mag": 0.0,
-            "force_x": 0.0,
-            "force_y": 0.0,
-            "force_z": 0.0,
-            "force_app_x": float(base_pos[0]),
-            "force_app_y": float(base_pos[1]),
-            "force_app_z": float(base_pos[2]),
-        }
+        feat = _state_to_features(data, model, cfg, pelvis_id, force_body_id, joint_ids, qpos_adr, qvel_adr, action_policy)
+        row = {"episode_id": 0, "timestep": t, "time": time}
+        row.update({name: float(val) for name, val in zip(_FEATURE_COLS, feat)})
         rows.append(row)
 
-        # Frontend frame schema.
-        joints_out = {}
-        for urdf_name, motor_idx in _URDF_TO_MOTOR.items():
-            joints_out[urdf_name] = round(float(joint_pos_motor[motor_idx]), 5)
-
+        joint_pos_motor = data.qpos[qpos_adr].copy()
+        joints_out = {name: round(float(joint_pos_motor[idx]), 5) for name, idx in _URDF_TO_MOTOR.items()}
         frames.append({
             "t": round(time, 4),
             "joints": joints_out,
@@ -181,3 +171,30 @@ def generate_rollout(params: dict):
             break
 
     return frames, pd.DataFrame(rows)
+
+
+def generate_rollout(params: dict, controller_type: str = "safe"):
+    """Run one MuJoCo episode and return (frames, df, cfg)."""
+    if not MUJOCO_AVAILABLE:
+        raise RuntimeError(f"MuJoCo collector not available: {MUJOCO_ERROR}")
+
+    seed = int(params.get("seed", 42))
+    max_steps = int(round(params.get("seconds", 8.0) / STEP_DT))
+    slope_deg = float(params.get("incline_deg", 0.0))
+    friction = float(params.get("friction", 1.0))
+    speed = float(params.get("speed_mps", 1.0))
+
+    cfg = EpisodeConfig(
+        episode_id=0,
+        seed=seed,
+        max_steps=max_steps,
+        slope_deg=slope_deg,
+        friction=friction,
+        cmd_vel=np.array([speed, 0.0], dtype=np.float32),
+        cmd_yaw_rate=0.0,
+        force=np.zeros(3, dtype=np.float32),
+        force_body="pelvis",
+    )
+
+    frames, df = run_episode_controller(cfg, controller_type)
+    return frames, df, cfg

@@ -171,9 +171,9 @@ def run_rollout(params: dict) -> dict:
 
     if mujoco_rollout.MUJOCO_AVAILABLE:
         try:
-            frames, df = mujoco_rollout.generate_rollout(params)
+            frames, df, _ = mujoco_rollout.generate_rollout(params, controller_type="safe")
             terrain, _, _ = _build_terrain_profile(params)
-            result = {"params": params, "terrain": terrain, "frames": frames, "source": "mujoco"}
+            result = {"params": params, "terrain": terrain, "frames": frames, "source": "mujoco_safe"}
         except Exception as exc:
             # Fall back to stub on any MuJoCo error so the frontend never breaks.
             result = generate_stub_rollout(params)
